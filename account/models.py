@@ -12,6 +12,10 @@ class Asset:
     avg_buy_price_modified: bool
     unit_currency: str
 
+    @property
+    def ticker(self) -> str:
+        return f"{self.unit_currency}-{self.currency}"
+
     @classmethod
     def from_dict(cls, data: dict) -> "Asset":
         return cls(
@@ -74,7 +78,7 @@ class Balance:
     def save(self, db_path: str = "account.db"):
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
-            initialize_db(cursor)
+            
             for asset in self.assets:
                 asset.save(cursor)
             conn.commit()
@@ -83,7 +87,6 @@ class Balance:
     def load(cls, db_path: str = "account.db") -> "Balance":
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
-            initialize_db(cursor)
             assets = Asset.load_all(cursor)
             return cls(assets=assets)
 
@@ -124,8 +127,10 @@ class Balance:
             return executor.sell_limit_order(ticker, price, volume)
         raise NotImplementedError("Executor reference required for order execution.")
 
-def initialize_db(cursor: sqlite3.Cursor):
-    cursor.execute("""
+def initialize_db(db_path: str = "account.db"):
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS assets (
             currency TEXT PRIMARY KEY,
             balance TEXT,

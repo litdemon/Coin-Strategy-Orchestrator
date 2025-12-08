@@ -99,8 +99,9 @@ class UpbitWebSocket(UpbitWebSocketBase):
     def _update_request(self):
         req = [{"ticket": str(uuid.uuid4())[:6]}]
         if self.codes:
-            req.append({"type": "trade", "codes": self.codes, "isOnlyRealtime": True})
-            req.append({"type": "orderbook", "codes": self.codes, "isOnlyRealtime": True})
+            req.append({"type": "ticker", "codes": self.codes})
+            req.append({"type": "trade", "codes": self.codes})
+            req.append({"type": "orderbook", "codes": self.codes})
         self.request = req
 
     def add_subscription(self, codes: List[str]):
