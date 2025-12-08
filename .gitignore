@@ -1,2 +1,5 @@
 **/*.pyc
-__pycache__*.db
+**/__pycache__
+*.db
+coin-stratege.log
+**/*.log

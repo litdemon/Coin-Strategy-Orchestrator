@@ -1,27 +1,63 @@
-
 from abc import ABC, abstractmethod
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from pydantic import BaseModel, Field
+from enum import Enum
+import uuid
+import time
+import json
 
-class WatchPolicy(ABC):
-    """감시 정책 추상 클래스"""
+if TYPE_CHECKING:
+    from models.position import Position
+
+
+class SignalType(Enum):
+    CLOSE = "close"
+    PARTIAL_CLOSE = "partial_close"
+    UPDATE_STOP = "update_stop"
+
+
+class Signal(BaseModel):
+    """Strategy에서 발생하는 신호"""
+    type: SignalType
+    position_id: str
+    reason: str
+    data: Optional[Dict[str, Any]] = None
+    timestamp: float = Field(default_factory=time.time)
+
+
+class StrategyConfig(BaseModel):
+    """Strategy 설정을 저장하기 위한 베이스 클래스"""
+    strategy_type: str
     
-    def __init__(self, name: str, sell_ratio: float = 1.0):
-        """
-        Args:
-            name: 정책 이름
-            sell_ratio: 조건 만족시 매도할 비율 (0.0 ~ 1.0)
-        """
-        self.name = name
-        self.sell_ratio = sell_ratio
+    class Config:
+        extra = "allow"  # 추가 필드 허용
+
+
+class StrategyBase(ABC):
+    """Strategy 베이스 클래스"""
+    
+    def __init__(self, position_id: str, config: StrategyConfig):
+        self.position_id = position_id
+        self.config = config
+        self.signals: List[Signal] = []
     
     @abstractmethod
-    def check_sell_signal(self, rot: 'Rot', current_price: float) -> bool:
-        """매도 신호 체크
-        
-        Args:
-            rot: 확인할 Rot 객체
-            current_price: 현재 코인 가격
-            
-        Returns:
-            매도 신호 여부
-        """
+    def update(self, current_price: float, position: 'Position') -> Optional[Signal]:
+        """가격 업데이트 시 호출, Signal 반환"""
         pass
+    
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        """Strategy를 dict로 직렬화 (DB 저장용)"""
+        pass
+    
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'StrategyBase':
+        """dict에서 Strategy 복원"""
+        pass
+    
+    def emit_signal(self, signal: Signal):
+        """신호 발생"""
+        self.signals.append(signal)
+        return signal

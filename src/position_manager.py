@@ -1,60 +1,76 @@
-import uuid
-import time
-import logging
 import sqlite3
+import json
+import sys
 import os
 
-from pydantic import BaseModel, Field
-from typing import Optional, Any, List
+# Add project root to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-class Position(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    ticker: str
-    entry_price: float
-    volume: float
-    config: Optional[Any] = None
-    entry_time: float = Field(default_factory=time.time)
+from typing import Optional, List, Dict, Any
+from models.position import Position, initialize_db
+from src.stratege_manager import StrategyManager, StrategyFactory
+from stratege.base import Signal
+
+
+class PositionEx(Position):
     
-    # Fields refactored from Rot
-    order_id: Optional[str] = None
-    highest_price: Optional[float] = None
-    status: str = "active" # active, closed
-
-    close_price: Optional[float] = None
-    close_time: Optional[float] = None
-
+    # Strategy 직렬화된 데이터 저장
+    strategies_data: Optional[List[Dict[str, Any]]] = None
+    
+    # Strategy Manager (DB에 저장되지 않음)
+    _strategy_manager: Optional[StrategyManager] = None
+    
     class Config:
         arbitrary_types_allowed = True
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def profit_rate(self, current_price: float) -> float:
-        if self.entry_price == 0:
-            return 0.0
-        return (current_price - self.entry_price) / self.entry_price
-
-    def close(self, close_price: float) -> None:
-        self.close_price = close_price
-        self.close_time = time.time()
-        
+    
     @property
-    def is_closed(self) -> bool:
-        return self.close_price is not None
-
-    def __repr__(self) -> str:
-        profit_rate = self.profit_rate(self.close_price) if self.close_price else 0
-        return f"Position(id={self.id}, ticker={self.ticker}, entry={self.entry_price}, close={self.close_price}, profit={profit_rate:.4f})"
-
-
+    def strategy_manager(self) -> StrategyManager:
+        """Strategy Manager 접근 (lazy initialization)"""
+        if self._strategy_manager is None:
+            self._strategy_manager = StrategyManager(self)
+            self._strategy_manager.load_strategies()
+        return self._strategy_manager
+    
+    def add_strategy(self, strategy_type: str, config: Dict[str, Any]):
+        """Strategy 추가 편의 메서드"""
+        strategy = StrategyFactory.create(strategy_type, self.id, config)
+        self.strategy_manager.add_strategy(strategy)
+    
+    def update_price(self, current_price: float) -> List[Signal]:
+        """가격 업데이트 및 Signal 반환"""
+        # 최고가 업데이트
+        if self.highest_price is None or current_price > self.highest_price:
+            self.highest_price = current_price
+        
+        # Strategy 업데이트
+        return self.strategy_manager.update(current_price)
+    
+    def to_db_dict(self) -> Dict[str, Any]:
+        """DB 저장용 딕셔너리"""
+        data = self.model_dump(exclude={'_strategy_manager'})
+        if self.strategies_data:
+            data['strategies_data'] = json.dumps(self.strategies_data)
+        return data
+    
+    @classmethod
+    def from_db_dict(cls, data: Dict[str, Any]) -> 'Position':
+        """DB에서 로드"""
+        if isinstance(data.get('strategies_data'), str):
+            data['strategies_data'] = json.loads(data['strategies_data'])
+        return cls(**data)
+    
     def save(self, db_path: str = "account.db"):
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             initialize_db(db_path)
             
             # Serialize strategies list to JSON string if it exists
-            # For Position base class, we just ignore strategies_data or handle generic config
-            
+            strategies_str = None
+            if self.strategies_data:
+                import json
+                strategies_str = json.dumps(self.strategies_data)
+                
+            # Serialize config if it exists (assuming it's JSON serializable or simple type)
             config_str = None
             if self.config:
                 import json
@@ -62,14 +78,6 @@ class Position(BaseModel):
                     config_str = json.dumps(self.config)
                 except:
                     config_str = str(self.config)
-
-            # NOTE: strategies_data is handled by PositionEx, but if we save generic Position, 
-            # we need to respect the schema. The schema has 'strategies_data' column.
-            # We will pass None if it doesn't exist on self (it doesn't on base Position).
-            strategies_str = getattr(self, "strategies_data", None)
-            if strategies_str and not isinstance(strategies_str, str):
-                 import json
-                 strategies_str = json.dumps(strategies_str)
 
             cursor.execute("""
                 INSERT OR REPLACE INTO positions (
@@ -83,12 +91,22 @@ class Position(BaseModel):
             conn.commit()
 
     def archive(self, db_path: str = "account.db"):
+        """
+        Moves the position from 'positions' table to 'position_history' table.
+        Should be called after the position is closed.
+        """
         if not self.is_closed:
              raise ValueError("Position must be closed before archiving.")
 
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             initialize_db(db_path)
+            
+            # Serialize fields
+            strategies_str = None
+            if self.strategies_data:
+                import json
+                strategies_str = json.dumps(self.strategies_data)
             
             config_str = None
             if self.config:
@@ -98,11 +116,7 @@ class Position(BaseModel):
                 except:
                     config_str = str(self.config)
 
-            strategies_str = getattr(self, "strategies_data", None)
-            if strategies_str and not isinstance(strategies_str, str):
-                 import json
-                 strategies_str = json.dumps(strategies_str)
-            
+            # Insert into history
             cursor.execute("""
                 INSERT OR REPLACE INTO position_history (
                     id, ticker, entry_price, volume, config, entry_time,
@@ -113,7 +127,9 @@ class Position(BaseModel):
                 self.order_id, self.highest_price, self.status, self.close_price, self.close_time, strategies_str
             ))
             
+            # Delete from active positions
             cursor.execute("DELETE FROM positions WHERE id = ?", (self.id,))
+            
             conn.commit()
 
     @classmethod
@@ -133,18 +149,23 @@ class Position(BaseModel):
             
             positions = []
             for row in rows:
+                # row indices match the table columns defined in initialize_db
+                # id, ticker, entry_price, volume, config, entry_time, order_id, highest_price, status, close_price, close_time, strategies_data
+                
+                # Deserialize fields
                 config_val = row[4]
                 if config_val:
                     try:
                         import json
                         config_val = json.loads(config_val)
                     except:
-                        pass
+                        pass # Keep as string if json load fails
                 
-                # strategies_data is row[11], but base Position doesn't have it.
-                # We can ignore it or store in config if needed. 
-                # For now, base Position won't load it into a field, but it's fine.
-                
+                strategies_val = row[11]
+                if strategies_val:
+                    import json
+                    strategies_val = json.loads(strategies_val)
+
                 pos = cls(
                     id=row[0],
                     ticker=row[1],
@@ -156,7 +177,8 @@ class Position(BaseModel):
                     highest_price=row[7],
                     status=row[8],
                     close_price=row[9],
-                    close_time=row[10]
+                    close_time=row[10],
+                    strategies_data=strategies_val
                 )
                 positions.append(pos)
             return positions
