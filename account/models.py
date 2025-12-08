@@ -87,6 +87,43 @@ class Balance:
             assets = Asset.load_all(cursor)
             return cls(assets=assets)
 
+    def get_balances(self) -> List[dict]:
+        """
+        Returns a list of all assets as dictionaries.
+        """
+        return [asset.to_dict() for asset in self.assets]
+
+    def get_balance(self, ticker: str) -> Decimal:
+        """
+        Returns the balance for a given ticker.
+        If ticker is "KRW-BTC", searches for "BTC".
+        If ticker is "KRW", searches for "KRW".
+        Returns 0 if not found.
+        """
+        currency = ticker.split("-")[1] if "-" in ticker else ticker
+        for asset in self.assets:
+            if asset.currency == currency:
+                return asset.balance
+        return Decimal(0)
+    
+    def buy_order(self, ticker: str, price: Decimal, volume: Decimal, executor=None):
+        """
+        Placeholder for buy order.
+        Requires an executor to communicate with the exchange.
+        """
+        if executor:
+            return executor.buy_limit_order(ticker, price, volume)
+        raise NotImplementedError("Executor reference required for order execution.")
+
+    def sell_order(self, ticker: str, price: Decimal, volume: Decimal, executor=None):
+        """
+        Placeholder for sell order.
+        Requires an executor to communicate with the exchange.
+        """
+        if executor:
+            return executor.sell_limit_order(ticker, price, volume)
+        raise NotImplementedError("Executor reference required for order execution.")
+
 def initialize_db(cursor: sqlite3.Cursor):
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS assets (
