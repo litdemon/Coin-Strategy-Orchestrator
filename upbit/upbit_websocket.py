@@ -7,7 +7,6 @@ import threading
 import logging
 from abc import ABC, abstractmethod
 from typing import Optional, List 
-from messages.myOrder import MyOrder
 
 logger = logging.getLogger("UpbitWebSocket")
 
@@ -24,17 +23,16 @@ class WebsocketObserver(ABC):
     def on_ws_closed(self, cls):
         pass
 
-class UpbitWebSocket:
+class UpbitWebSocketBase(ABC):
     def __init__(self, observer: WebsocketObserver):
         self.observer = observer
         self.ws: Optional[websocket.WebSocketApp] = None
         self.is_running = False
         self.thread = None
         self.reconnect_delay = 3
-        
-        self.uri = "wss://api.upbit.com/websocket/v1"
-        self.request = None
+        self.uri = None
         self.headers = None
+        self.request = None
 
     def _on_message(self, ws, message):
         try:
@@ -51,7 +49,6 @@ class UpbitWebSocket:
         self.observer.on_ws_closed(self)
 
     def _on_open(self, ws):
-
         logger.info(f"WebSocket Opened {self.request}")
         self.observer.on_ws_opened(self)
         if self.request:
@@ -76,24 +73,13 @@ class UpbitWebSocket:
                 logger.info(f"Reconnecting in {self.reconnect_delay} seconds...")
                 time.sleep(self.reconnect_delay)
 
-    def update_subscription(self, codes: List[str]):
-        if not self.ws:
-            return
-        req = []
-        req.append({"ticket": str(uuid.uuid4())[:6]})
-        if codes:
-            req.append({"type": "trade", "codes": codes, "isOnlyRealtime": True})
-            req.append({"type": "orderbook", "codes": codes, "isOnlyRealtime": True})
-        self.ws.send(json.dumps(req))
-
     def start(self):
-        logger.info("UpbitWebSocketPrivate started")
+        logger.info(f"{self.__class__.__name__} started")
         if self.is_running:
             return
         self.is_running = True
         self.thread = threading.Thread(target=self._run_forever, daemon=True)
         self.thread.start()
-        logger.info("UpbitWebSocketPrivate started")
 
     def stop(self):
         self.is_running = False
@@ -101,25 +87,49 @@ class UpbitWebSocket:
             self.ws.close()
         if self.thread:
             self.thread.join(timeout=1)
-        logger.info("UpbitWebSocket stopped")
+        logger.info(f"{self.__class__.__name__} stopped")
 
+class UpbitWebSocket(UpbitWebSocketBase):
+    def __init__(self, codes: List[str] = None, observer: WebsocketObserver = None):
+        super().__init__(observer=observer)
+        self.uri = "wss://api.upbit.com/websocket/v1"
+        self.codes = codes or []
+        self._update_request()
 
-class UpbitWebSocketPrivate(UpbitWebSocket):
+    def _update_request(self):
+        req = [{"ticket": str(uuid.uuid4())[:6]}]
+        if self.codes:
+            req.append({"type": "trade", "codes": self.codes, "isOnlyRealtime": True})
+            req.append({"type": "orderbook", "codes": self.codes, "isOnlyRealtime": True})
+        self.request = req
+
+    def add_subscription(self, codes: List[str]):
+        self.codes.extend(codes)
+        self._update_request()
+        if self.ws and self.ws.keep_running:
+            self.ws.send(json.dumps(self.request))
+
+    def remove_subscription(self, codes: List[str]):
+        self.codes = [code for code in self.codes if code not in codes]
+        self._update_request()
+        if self.ws and self.ws.keep_running:
+            self.ws.send(json.dumps(self.request))
+
+class UpbitWebSocketPrivate(UpbitWebSocketBase):
     def __init__(self, access_key: str = None, secret_key: str = None, observer: WebsocketObserver = None):
         super().__init__(observer=observer)
         self.access_key = access_key
         self.secret_key = secret_key
         self.uri = "wss://api.upbit.com/websocket/v1/private"
+        self.headers = {
+            "Authorization": f"Bearer {self._make_jwt()}"
+        }
         self.request = [
             {"ticket": str(uuid.uuid4())},
             {"type": "myOrder", "codes": []},
             {"type": "myAsset"}
         ]
-        self.headers = {
-            "Authorization": f"Bearer {self._make_jwt()}"
-        }
 
     def _make_jwt(self):
         payload = {"access_key": self.access_key, "nonce": str(uuid.uuid4())}
         return jwt.encode(payload, self.secret_key, algorithm="HS256")
-    
