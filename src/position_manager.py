@@ -221,3 +221,12 @@ class PositionEx(Position):
                 )
             """)
             conn.commit()
+
+class PositionManager:
+    def __init__(self, db_path: str = "account.db"):
+        self.db_path = db_path
+        self.positions: List[PositionEx] = []
+        self.load_positions()
+
+    def load_positions(self):
+        self.positions = PositionEx.load_all(self.db_path)

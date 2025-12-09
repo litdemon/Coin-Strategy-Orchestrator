@@ -17,6 +17,7 @@ import pyupbit
 # Use PositionEx instead of base Position
 from src.position_manager import PositionEx
 from src.stratege_manager import StrategyFactory
+from src.order_manager import OrderInfoEx
 
 # Import models
 from models.trade import Trade
@@ -38,6 +39,7 @@ DB_PATH = "account.db"
 
 from src.dashboard import Dashboard
 from src.current_price import CurrentPrice
+from src.order_manager import OrderManager
 
 class Manager(WebsocketObserver):
     def __init__(self):
@@ -50,15 +52,14 @@ class Manager(WebsocketObserver):
         self.current_price = CurrentPrice()
         # self.stratege = {ticker: [TrailingStopPolicy(0.05)] for ticker in self.tickers} # Obsolete
         self.positions: List[PositionEx] = []
-        
-        # Initial positions update for dashboard
-        # Will be populated in init_position
+        self.orders: OrderManager = OrderManager(on_order_complete=self.on_my_order, db_path=DB_PATH)
+
 
     def init_position(self):
         positions = PositionEx.load_all(DB_PATH)
         for pos in positions:
             self.positions.append(pos)
-            self.dashboard.log(f"Loaded Position: {pos.ticker} {pos.volume * pos.entry_price:,.0f}")
+            self.dashboard.log(f"Loaded Position: {pos.ticker:<10} {pos.entry_price:<10,.0f} {pos.volume * pos.entry_price:,.0f}")
         
         default_rate = 0.25  # 25%
 
@@ -123,8 +124,13 @@ class Manager(WebsocketObserver):
                 
                 strategy_str = ", ".join(strategies)
                 profit_rate = (self.current_price.get(ticker) - pos.entry_price) / pos.entry_price * 100
+                if profit_rate < 0:
+                    profit_rate_str = f"\033[34m{profit_rate:.2f}%\033[0m"
+                else:
+                    profit_rate_str = f"\033[31m+{profit_rate:.2f}%\033[0m"
+
                 volume = pos.volume * pos.entry_price
-                summaries.append(f"ID:{pos.id[:4]}.. | {strategy_str} | PnL: {profit_rate:.2f}% | Vol: {volume:,.0f}")
+                summaries.append(f"ID:{pos.id[:4]}.. | {strategy_str} | PnL: {profit_rate_str} | Vol: {volume:,.0f}")
             
             self.dashboard.update_positions(ticker, summaries)
 
@@ -181,9 +187,12 @@ class Manager(WebsocketObserver):
             pass
 
     def on_my_asset(self, cls, message: dict):
-        ticker = message['code']
-        balance = message['balance']
-        # self.dashboard.log(f"Asset Update: {ticker}: {balance:.0f}")
+        assets = message['assets']
+        for asset in assets:
+            ticker = asset['code']
+            balance = asset['balance']
+            self.balance.set_balance(ticker, balance)
+            self.dashboard.log(f"Asset Update: {ticker}: {balance:.0f}")
 
     def on_ticker(self, message: dict):
         ticker = message['code']
@@ -192,6 +201,9 @@ class Manager(WebsocketObserver):
         if not self.current_price.is_updated(ticker):
             return
         
+        # Check orders
+        self.orders.check_execution(self.current_price)
+
         # Update Dashboard Ticker Info
         candle = self.current_price.candles[ticker]
         candle_str = candle.render()
@@ -265,6 +277,7 @@ if __name__ == "__main__":
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
     logging.basicConfig(level=logging.DEBUG, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
     Asset.initialize_db()
+    OrderInfoEx.initialize_db()
     sync_with_upbit() 
     # 
     manager = Manager()

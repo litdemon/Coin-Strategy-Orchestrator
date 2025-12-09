@@ -1,6 +1,6 @@
 
 from typing import List, Tuple
-from src.candle import Candle
+from tools.candle import Candle
 
 class CurrentPrice:
     def __init__(self):
