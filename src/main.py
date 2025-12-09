@@ -35,55 +35,13 @@ UPBIT_SECRET_KEY = os.getenv("UPBIT_SECRET_KEY")
 DB_PATH = "account.db"
 
 
-class CurrentPrice:
-    def __init__(self):
-        self.candles = {}
-        self.previous_line= ""
 
-    def update(self, code: str, price: float):
-        if code not in self.candles:
-             self.candles[code] = Candle(code, price)
-        else:
-             self.candles[code].update(price)
-
-    def get(self, code: str) -> float:
-        if code in self.candles:
-            return self.candles[code].close
-        return 0.0
-    
-    def is_updated(self, code: str) -> bool:
-        return code in self.candles
-    
-    def get_all(self) -> List[Tuple[str, float]]:
-        # Return (code, latest_price) to maintain compatibility
-        return [(code, candle.close) for code, candle in self.candles.items()]
-    
-    def print_all(self):
-        line = ""
-        # Sort or fixed order might be better, but dict iteration fine for now
-        # Format: [CODE: PRICE CANDLE]
-        
-        for code, candle in self.candles.items():
-            candle_str = candle.render(width=15)
-            line += f"[{code}: {candle.close:.0f} {candle_str}] "
-        
-        # Clear line padding
-        padding = max(0, 160 - len(line)) # arbitrary wide buffer
-        
-        if self.previous_line != line:
-            self.previous_line = line
-            # \r to overwrite line
-            # Need to handle terminal width if too long, but simple for now
-            # ANSI codes count in len(line) but don't show, so visual length is shorter.
-            # Just print raw.
-            print(f"\r{line}", end="")
-            
-        return
-
-
+from src.dashboard import Dashboard
+from src.current_price import CurrentPrice
 
 class Manager(WebsocketObserver):
     def __init__(self):
+        self.dashboard = Dashboard() # Initialize Dashboard
 
         self.balance = Balance.load(DB_PATH)
         self.tickers = [ asset.ticker for asset in self.balance.assets if asset.currency != "KRW" ]
@@ -92,17 +50,17 @@ class Manager(WebsocketObserver):
         self.current_price = CurrentPrice()
         # self.stratege = {ticker: [TrailingStopPolicy(0.05)] for ticker in self.tickers} # Obsolete
         self.positions: List[PositionEx] = []
-
+        
+        # Initial positions update for dashboard
+        # Will be populated in init_position
 
     def init_position(self):
-        # Load existing positions as PositionEx
-        # Note: PositionEx.load_all calls Position.load_all logic but instantiates PositionEx
         positions = PositionEx.load_all(DB_PATH)
         for pos in positions:
             self.positions.append(pos)
-            logger.info(f"Loaded Position: {pos.ticker} {pos.volume * pos.entry_price:.0f} (Strategies: {len(pos.strategy_manager.strategies)})")
+            self.dashboard.log(f"Loaded Position: {pos.ticker} {pos.volume * pos.entry_price:,.0f}")
         
-        rate_step = 0.25
+        default_rate = 0.25  # 25%
 
         # self.positions 에 없는 것만 추가
         for ticker in self.tickers:
@@ -116,7 +74,7 @@ class Manager(WebsocketObserver):
 
             entry_price = pyupbit.get_current_price(ticker)
             
-            volume = float(balance) / rate_step
+            volume = float(balance) * default_rate
             if volume * entry_price < 5000: # Min order amount check roughly
                 continue
 
@@ -130,22 +88,52 @@ class Manager(WebsocketObserver):
             
             self.positions.append(pos)
             pos.save(DB_PATH)
-            logger.info(f"Add Position: {pos.ticker} {pos.volume * pos.entry_price:.0f} with TrailingStop")
+            self.dashboard.log(f"Add Position: {pos.ticker} {pos.volume * pos.entry_price:,.0f} with TrailingStop")
+        
+        self._update_all_positions_dashboard()
 
     def run(self):
+        self.dashboard.start() # Start Dashboard
         self.init_position()
         self.upbit_websocket.start()
         self.upbit_asset.start()
 
     def stop(self):
         self.upbit_websocket.stop()
+        self.upbit_asset.stop()
+        self.dashboard.stop()
+
+    def _update_all_positions_dashboard(self):
+        # Group positions by ticker
+        ticker_map = {}
+        for ticker in self.tickers:
+            ticker_map[ticker] = []
+            
+        for pos in self.positions:
+            if not pos.is_closed:
+                ticker_map[pos.ticker].append(pos)
+        
+        for ticker, positions in ticker_map.items():
+            summaries = []
+            for pos in positions:
+                # Format: "StrategyType(Status) | Vol: ..."
+                strategies = []
+                for s in pos.strategy_manager.strategies:
+                    strategies.append(f"{s.config.strategy_type}")
+                
+                strategy_str = ", ".join(strategies)
+                profit_rate = (self.current_price.get(ticker) - pos.entry_price) / pos.entry_price * 100
+                volume = pos.volume * pos.entry_price
+                summaries.append(f"ID:{pos.id[:4]}.. | {strategy_str} | PnL: {profit_rate:.2f}% | Vol: {volume:,.0f}")
+            
+            self.dashboard.update_positions(ticker, summaries)
 
     # -- WebSocket Events -------------------------
     def on_ws_opened(self, cls):
-        logger.info("WebSocket Opened")
+        self.dashboard.log("WebSocket Opened")
 
     def on_ws_closed(self, cls):
-        logger.info("WebSocket Closed")
+        self.dashboard.log("WebSocket Closed")
 
     def on_ws_message(self, cls, message: dict):
         line = ""
@@ -164,8 +152,6 @@ class Manager(WebsocketObserver):
             self.on_my_asset(cls, message)
         else:
             pass
-
-        self.current_price.print_all()
         
     def on_my_order(self, cls, message: dict):
         ticker = message['code']
@@ -177,20 +163,18 @@ class Manager(WebsocketObserver):
 
         krw_volume = volume * entry_price
 
-        print(f"\n👩 Order detected {ticker}: {ask_bid}:{state}:{entry_price:.0f} {krw_volume:.0f}won ")
-        if ask_bid == "ask":
-            if state == "done":
-                pass
-        elif ask_bid == "bid":
-            if state == "done":
-                pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)    
-                pos.add_strategy("trailing_stop", {
-                    "trail_percent": 0.05,        # 5% trailing
-                    "activation_percent": 0.01    # Activate after 1% profit
-                })
-                self.positions.append(pos)
-                pos.save(DB_PATH)
-                logger.info(f"Add Position: {pos.ticker} {pos.volume * pos.entry_price:.0f} with TrailingStop")
+        self.dashboard.log(f"Order detected {ticker}: {ask_bid}:{state}:{entry_price:.0f} {krw_volume:,.0f}won")
+        
+        if ask_bid == "bid" and state == "done":
+            pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)    
+            pos.add_strategy("trailing_stop", {
+                "trail_percent": 0.05,        # 5% trailing
+                "activation_percent": 0.01    # Activate after 1% profit
+            })
+            self.positions.append(pos)
+            pos.save(DB_PATH)
+            self.dashboard.log(f"Add Position: {pos.ticker}")
+            self._update_all_positions_dashboard()
         elif ask_bid == "cancel":
             pass
         else:
@@ -199,7 +183,7 @@ class Manager(WebsocketObserver):
     def on_my_asset(self, cls, message: dict):
         ticker = message['code']
         balance = message['balance']
-        print(f"\n👩‍💻 Asset Update: {ticker}: {balance:.0f}")
+        # self.dashboard.log(f"Asset Update: {ticker}: {balance:.0f}")
 
     def on_ticker(self, message: dict):
         ticker = message['code']
@@ -208,13 +192,32 @@ class Manager(WebsocketObserver):
         if not self.current_price.is_updated(ticker):
             return
         
+        # Update Dashboard Ticker Info
+        candle = self.current_price.candles[ticker]
+        candle_str = candle.render()
+        self.dashboard.update_ticker(ticker, current_price, candle_str)
+        
         # Check positions for this ticker
+        active_positions_count = 0
+        updated = False
+        
         for pos in self.positions:
             if pos.ticker == ticker and not pos.is_closed:
+                active_positions_count += 1
                 # Update position price and check mechanisms
                 signals = pos.update_price(current_price)
                 if signals:
                     self.on_signal(pos, signals)
+                    updated = True
+        
+        # If signals occurred, refresh positions list on dashboard
+        if updated:
+            self._update_all_positions_dashboard()
+        
+        # Optimization: We could update PnL on every ticker, 
+        # but maybe throttle it or do it every X seconds.
+        # For now, let's update position PnL on every ticker tick for responsiveness
+        self._update_all_positions_dashboard()
                     
 
     def on_orderbook(self, message: dict):
@@ -231,14 +234,13 @@ class Manager(WebsocketObserver):
 
     def on_signal(self, position: PositionEx, signals: List[Signal]):
         for signal in signals:
-            print(f"\n🚨 SIGNAL for {position.ticker}: {signal.type.value} - {signal.reason}")
-            logger.info(f"\n🚨 SIGNAL for {position.ticker}: {signal.type.value} - {signal.reason}")
+            self.dashboard.log(f"SIGNAL {position.ticker}: {signal.type.value} - {signal.reason}")
             
             if signal.type.value == "close":
-                position.close(self.current_price.get_price(position.ticker))
+                position.close(self.current_price.get(position.ticker))
                 position.save(DB_PATH)
                 position.archive(DB_PATH) # Move to history
-                logger.info(f"   Executed CLOSE. Position archived.")
+                self.dashboard.log(f"Executed CLOSE. Position archived.")
                 
             elif signal.type.value == "partial_close":
                 pass
@@ -262,8 +264,8 @@ if __name__ == "__main__":
     time_format = "%m-%d %H:%M:%S"
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
     logging.basicConfig(level=logging.DEBUG, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
-    PositionEx.initialize_db()
-    # sync_with_upbit() 
+    Asset.initialize_db()
+    sync_with_upbit() 
     # 
     manager = Manager()
     manager.run()
