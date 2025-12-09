@@ -66,6 +66,22 @@ class Asset:
                 unit_currency=row[5]
             ))
         return assets
+    
+    @staticmethod
+    def initialize_db(db_path: str = "account.db"):
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS assets (
+                currency TEXT PRIMARY KEY,
+                balance TEXT,
+                locked TEXT,
+                avg_buy_price TEXT,
+                avg_buy_price_modified INTEGER,
+                unit_currency TEXT
+            )
+        """)
+
 
 @dataclass
 class Balance:
@@ -127,16 +143,3 @@ class Balance:
             return executor.sell_limit_order(ticker, price, volume)
         raise NotImplementedError("Executor reference required for order execution.")
 
-def initialize_db(db_path: str = "account.db"):
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS assets (
-            currency TEXT PRIMARY KEY,
-            balance TEXT,
-            locked TEXT,
-            avg_buy_price TEXT,
-            avg_buy_price_modified INTEGER,
-            unit_currency TEXT
-        )
-    """)

@@ -120,7 +120,7 @@ class Position(BaseModel):
     def load_all(cls, db_path: str = "account.db", status: Optional[str] = None) -> list["Position"]:
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
-            initialize_db(db_path)
+            Position.initialize_db(db_path)
             
             query = "SELECT * FROM positions"
             params = []
@@ -161,40 +161,41 @@ class Position(BaseModel):
                 positions.append(pos)
             return positions
 
-def initialize_db(db_path: str = "account.db"):
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS positions (
-                id TEXT PRIMARY KEY,
-                ticker TEXT,
-                entry_price REAL,
-                volume REAL,
-                config TEXT,
-                entry_time REAL,
-                order_id TEXT,
-                highest_price REAL,
-                status TEXT,
-                close_price REAL,
-                "close_time" REAL,
-                strategies_data TEXT
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS position_history (
-                id TEXT PRIMARY KEY,
-                ticker TEXT,
-                entry_price REAL,
-                volume REAL,
-                config TEXT,
-                entry_time REAL,
-                order_id TEXT,
-                highest_price REAL,
-                status TEXT,
-                close_price REAL,
-                "close_time" REAL,
-                strategies_data TEXT
-            )
-        """)
-        conn.commit()
+    @staticmethod
+    def initialize_db(db_path: str = "account.db"):
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS positions (
+                    id TEXT PRIMARY KEY,
+                    ticker TEXT,
+                    entry_price REAL,
+                    volume REAL,
+                    config TEXT,
+                    entry_time REAL,
+                    order_id TEXT,
+                    highest_price REAL,
+                    status TEXT,
+                    close_price REAL,
+                    "close_time" REAL,
+                    strategies_data TEXT
+                )
+            """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS position_history (
+                    id TEXT PRIMARY KEY,
+                    ticker TEXT,
+                    entry_price REAL,
+                    volume REAL,
+                    config TEXT,
+                    entry_time REAL,
+                    order_id TEXT,
+                    highest_price REAL,
+                    status TEXT,
+                    close_price REAL,
+                    "close_time" REAL,
+                    strategies_data TEXT
+                )
+            """)
+            conn.commit()

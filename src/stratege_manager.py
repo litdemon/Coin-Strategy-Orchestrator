@@ -3,11 +3,11 @@ import os
 # Add project root to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stratege.base import StrategyBase, Signal, SignalType, StrategyConfig
+from strategy.base import StrategyBase, Signal, SignalType, StrategyConfig
 from typing import Optional, Dict, Any, List
 from models.position import Position
-from stratege.tailingstop import TrailingStopStrategy, TakeProfitStrategy, StopLossStrategy
-from stratege.tailingstop import TrailingStopConfig, TakeProfitConfig, StopLossConfig
+from strategy.tailingstop import TrailingStopStrategy, TakeProfitStrategy, StopLossStrategy
+from strategy.tailingstop import TrailingStopConfig, TakeProfitConfig, StopLossConfig
 
 
 # ============= Strategy Factory =============

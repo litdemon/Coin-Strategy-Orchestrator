@@ -1,6 +1,6 @@
 
 
-from stratege.base import StrategyBase, Signal, SignalType, StrategyConfig
+from strategy.base import StrategyBase, Signal, SignalType, StrategyConfig
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:

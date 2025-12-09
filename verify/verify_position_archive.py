@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import time
-from models.position import Position, initialize_db
+from models.position import Position
 
 DB_PATH = "test_archive.db"
 
@@ -11,7 +11,7 @@ def verify_archive():
         os.remove(DB_PATH)
 
     # Initialize
-    initialize_db(DB_PATH)
+    Position.initialize_db(DB_PATH)
 
     # 1. Create and Save Position
     pos = Position(ticker="KRW-BTC", entry_price=50000000.0, volume=0.1)

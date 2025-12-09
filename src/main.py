@@ -10,8 +10,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from typing import List, Tuple
 from dotenv import load_dotenv
-from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver
-from account.models import Balance, Asset,initialize_db
+from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
+from account.models import Balance, Asset
 import pyupbit
 
 # Use PositionEx instead of base Position
@@ -22,7 +22,8 @@ from src.stratege_manager import StrategyFactory
 from models.trade import Trade
 from models.orderInfo import OrderInfo
 from models.my_asset import MyAsset
-
+from strategy.base import SignalType, Signal
+from tools.candle import Candle
 
 logger = logging.getLogger(__name__)
 
@@ -34,43 +35,49 @@ UPBIT_SECRET_KEY = os.getenv("UPBIT_SECRET_KEY")
 DB_PATH = "account.db"
 
 
-from collections import deque
-
 class CurrentPrice:
     def __init__(self):
-        self.current_price = {}
+        self.candles = {}
         self.previous_line= ""
+
     def update(self, code: str, price: float):
-        if code not in self.current_price:
-            self.current_price[code] = deque(maxlen=5)
-        self.current_price[code].append(price)
-    
+        if code not in self.candles:
+             self.candles[code] = Candle(code, price)
+        else:
+             self.candles[code].update(price)
+
     def get(self, code: str) -> float:
-        if code in self.current_price and self.current_price[code]:
-            return self.current_price[code][-1]
+        if code in self.candles:
+            return self.candles[code].close
         return 0.0
     
     def is_updated(self, code: str) -> bool:
-        if code in self.current_price and self.current_price[code]:
-            return True
-        return False
+        return code in self.candles
     
     def get_all(self) -> List[Tuple[str, float]]:
         # Return (code, latest_price) to maintain compatibility
-        return [(code, prices[-1]) for code, prices in self.current_price.items() if prices]
+        return [(code, candle.close) for code, candle in self.candles.items()]
     
     def print_all(self):
         line = ""
-        for code, prices in self.current_price.items():
-            line += f"[{code}:{prices[-1]}]"
+        # Sort or fixed order might be better, but dict iteration fine for now
+        # Format: [CODE: PRICE CANDLE]
         
-        for i in range(160 - len(line)):
-            line += " "
+        for code, candle in self.candles.items():
+            candle_str = candle.render(width=15)
+            line += f"[{code}: {candle.close:.0f} {candle_str}] "
+        
+        # Clear line padding
+        padding = max(0, 160 - len(line)) # arbitrary wide buffer
         
         if self.previous_line != line:
             self.previous_line = line
+            # \r to overwrite line
+            # Need to handle terminal width if too long, but simple for now
+            # ANSI codes count in len(line) but don't show, so visual length is shorter.
+            # Just print raw.
             print(f"\r{line}", end="")
-        
+            
         return
 
 
@@ -81,6 +88,7 @@ class Manager(WebsocketObserver):
         self.balance = Balance.load(DB_PATH)
         self.tickers = [ asset.ticker for asset in self.balance.assets if asset.currency != "KRW" ]
         self.upbit_websocket = UpbitWebSocket(codes=self.tickers, observer=self)
+        self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
         self.current_price = CurrentPrice()
         # self.stratege = {ticker: [TrailingStopPolicy(0.05)] for ticker in self.tickers} # Obsolete
         self.positions: List[PositionEx] = []
@@ -106,30 +114,28 @@ class Manager(WebsocketObserver):
             if balance <= 0:
                 continue
 
-            slice = int(1/rate_step)
             entry_price = pyupbit.get_current_price(ticker)
             
-            # Divide balance into slices to create multiple positions (simulated)
-            for _ in range(slice):
-                volume = balance / slice
-                if float(volume) * entry_price < 5000: # Min order amount check roughly
-                    continue
+            volume = float(balance) / rate_step
+            if volume * entry_price < 5000: # Min order amount check roughly
+                continue
 
-                pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)
-                
-                # Add default strategy: Trailing Stop
-                pos.add_strategy("trailing_stop", {
-                    "trail_percent": 0.05,        # 5% trailing
-                    "activation_percent": 0.03    # Activate after 3% profit
-                })
-                
-                self.positions.append(pos)
-                pos.save(DB_PATH)
-                logger.info(f"Add Position: {pos.ticker} {pos.volume * pos.entry_price:.0f} with TrailingStop")
+            pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)
+            
+            # Add default strategy: Trailing Stop
+            pos.add_strategy("trailing_stop", {
+                "trail_percent": 0.05,        # 5% trailing
+                "activation_percent": 0.01    # Activate after 1% profit
+            })
+            
+            self.positions.append(pos)
+            pos.save(DB_PATH)
+            logger.info(f"Add Position: {pos.ticker} {pos.volume * pos.entry_price:.0f} with TrailingStop")
 
     def run(self):
         self.init_position()
         self.upbit_websocket.start()
+        self.upbit_asset.start()
 
     def stop(self):
         self.upbit_websocket.stop()
@@ -137,6 +143,9 @@ class Manager(WebsocketObserver):
     # -- WebSocket Events -------------------------
     def on_ws_opened(self, cls):
         logger.info("WebSocket Opened")
+
+    def on_ws_closed(self, cls):
+        logger.info("WebSocket Closed")
 
     def on_ws_message(self, cls, message: dict):
         line = ""
@@ -150,24 +159,47 @@ class Manager(WebsocketObserver):
             self.current_price.update(message['code'], message['trade_price'])
             self.on_trade(message)
         elif message["type"] == "myOrder":
-            pass
+            self.on_my_order(cls, message)
         elif message["type"] == "myAsset":
-            pass
+            self.on_my_asset(cls, message)
         else:
             pass
 
         self.current_price.print_all()
         
-        
-        
-    def on_ws_closed(self, cls):
-        logger.info("WebSocket Closed")
-
     def on_my_order(self, cls, message: dict):
-        pass
+        ticker = message['code']
+        order_type = message['order_type']
+        ask_bid = message['ask_bid']
+        state = message['state']
+        volume = message['volume']
+        entry_price = message['price']
+
+        krw_volume = volume * entry_price
+
+        print(f"\n👩 Order detected {ticker}: {ask_bid}:{state}:{entry_price:.0f} {krw_volume:.0f}won ")
+        if ask_bid == "ask":
+            if state == "done":
+                pass
+        elif ask_bid == "bid":
+            if state == "done":
+                pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)    
+                pos.add_strategy("trailing_stop", {
+                    "trail_percent": 0.05,        # 5% trailing
+                    "activation_percent": 0.01    # Activate after 1% profit
+                })
+                self.positions.append(pos)
+                pos.save(DB_PATH)
+                logger.info(f"Add Position: {pos.ticker} {pos.volume * pos.entry_price:.0f} with TrailingStop")
+        elif ask_bid == "cancel":
+            pass
+        else:
+            pass
 
     def on_my_asset(self, cls, message: dict):
-        pass
+        ticker = message['code']
+        balance = message['balance']
+        print(f"\n👩‍💻 Asset Update: {ticker}: {balance:.0f}")
 
     def on_ticker(self, message: dict):
         ticker = message['code']
@@ -182,21 +214,8 @@ class Manager(WebsocketObserver):
                 # Update position price and check mechanisms
                 signals = pos.update_price(current_price)
                 if signals:
-                    for signal in signals:
-                        print(f"\n🚨 SIGNAL for {ticker}: {signal.type.value} - {signal.reason}")
-                        logger.info(f"\n🚨 SIGNAL for {ticker}: {signal.type.value} - {signal.reason}")
-                        # Here you would typically execute the signal (close order etc.)
-                        # For now, we just print and maybe close the position object if it's a CLOSE signal
-                        
-                        if signal.type.value == "close":
-                             pos.close(current_price)
-                             pos.save(DB_PATH)
-                             pos.archive(DB_PATH) # Move to history
-                             logger.info(f"   Executed CLOSE. Position archived.")
-                             
-                        elif signal.type.value == "partial_close":
-                            # Handle partial close logic if needed
-                            pass
+                    self.on_signal(pos, signals)
+                    
 
     def on_orderbook(self, message: dict):
         pass
@@ -209,6 +228,20 @@ class Manager(WebsocketObserver):
 
     def on_asset(self, message: dict):
         pass
+
+    def on_signal(self, position: PositionEx, signals: List[Signal]):
+        for signal in signals:
+            print(f"\n🚨 SIGNAL for {position.ticker}: {signal.type.value} - {signal.reason}")
+            logger.info(f"\n🚨 SIGNAL for {position.ticker}: {signal.type.value} - {signal.reason}")
+            
+            if signal.type.value == "close":
+                position.close(self.current_price.get_price(position.ticker))
+                position.save(DB_PATH)
+                position.archive(DB_PATH) # Move to history
+                logger.info(f"   Executed CLOSE. Position archived.")
+                
+            elif signal.type.value == "partial_close":
+                pass
 
 
 
@@ -228,9 +261,9 @@ def sync_with_upbit():
 if __name__ == "__main__":
     time_format = "%m-%d %H:%M:%S"
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
-    logging.basicConfig(level=logging.DEBUG, filename="coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
-    initialize_db()
-    sync_with_upbit() 
+    logging.basicConfig(level=logging.DEBUG, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
+    PositionEx.initialize_db()
+    # sync_with_upbit() 
     # 
     manager = Manager()
     manager.run()

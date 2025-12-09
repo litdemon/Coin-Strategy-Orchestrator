@@ -6,8 +6,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.position_manager import PositionEx as Position
 from src.stratege_manager import StrategyFactory
-from stratege.tailingstop import TakeProfitStrategy, TakeProfitConfig, SignalType
-from stratege.base import StrategyConfig, StrategyBase, Signal
+from strategy.tailingstop import TakeProfitStrategy, TakeProfitConfig, SignalType
+from strategy.base import StrategyConfig, StrategyBase, Signal
 import time
 from typing import Dict, Any, Optional
 def example_1_basic_usage():
