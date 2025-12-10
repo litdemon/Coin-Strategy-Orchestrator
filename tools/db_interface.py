@@ -45,6 +45,8 @@ class DBInterface:
         
         # Pydantic v2에서는 annotation으로 타입을 확인합니다.
         for field_name, field_info in fields.items():
+            if field_name == 'id':
+                continue
             # 필드 타입 확인 (Optional 등 복잡한 타입은 간소화 처리)
             field_type = field_info.annotation
             sql_type = cls._map_type_to_sql(field_type)
@@ -57,11 +59,20 @@ class DBInterface:
             )
         """
         
+        archive_table_name = f"{table_name}_archive"
+        archive_query = f"""
+            CREATE TABLE IF NOT EXISTS {archive_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                {', '.join(columns_def)}
+            )
+        """
+        
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(query)
+            cursor.execute(archive_query)
             conn.commit()
-            logger.info(f"[{table_name}] 테이블 초기화 완료 (경로: {db_path})")
+            logger.info(f"[{table_name}, {archive_table_name}] 테이블 초기화 완료 (경로: {db_path})")
 
     def save(self, db_path: str = "database.db"):
 
@@ -143,3 +154,40 @@ class DBInterface:
                 results.append(instance)
                 
         return results
+
+    def archive(self, db_path: str = DB_PATH):
+        """
+        [Instance Method]
+        현재 인스턴스의 데이터를 아카이브 테이블로 이동하고 메인 테이블에서 삭제합니다.
+        사용법: user_instance.archive()
+        """
+        table_name = self.__class__._get_table_name()
+        archive_table_name = f"{table_name}_archive"
+        
+        # Pydantic v2: model_dump() 사용
+        data = self.model_dump()
+        
+        # id가 있어야 삭제 및 이동이 가능함
+        if 'id' not in data:
+            logger.error(f"Archive 실패: id가 없습니다. {data}")
+            return
+
+        keys = ", ".join(data.keys())
+        placeholders = ", ".join([f":{k}" for k in data.keys()])
+        
+        insert_query = f"INSERT INTO {archive_table_name} ({keys}) VALUES ({placeholders})"
+        delete_query = f"DELETE FROM {table_name} WHERE id = :id"
+        
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            try:
+                # 1. 아카이브 테이블에 복사
+                cursor.execute(insert_query, data)
+                # 2. 메인 테이블에서 삭제
+                cursor.execute(delete_query, {'id': data['id']})
+                conn.commit()
+                logger.info(f"데이터 아카이브 완료: {data}")
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"데이터 아카이브 실패: {e}")
+                raise e
