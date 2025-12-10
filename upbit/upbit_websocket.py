@@ -40,6 +40,7 @@ class UpbitWebSocketBase(ABC):
             self.observer.on_ws_message(self, data)
         except Exception as e:
             logger.error(f"Error processing message: {e}")
+            logger.warning(f"Error processing message: {message}")
 
     def _on_error(self, ws, error):
         logger.error(f"WebSocket Error: {error}")
@@ -100,8 +101,8 @@ class UpbitWebSocket(UpbitWebSocketBase):
         req = [{"ticket": str(uuid.uuid4())[:6]}]
         if self.codes:
             req.append({"type": "ticker", "codes": self.codes})
-            req.append({"type": "trade", "codes": self.codes})
-            req.append({"type": "orderbook", "codes": self.codes})
+            # req.append({"type": "trade", "codes": self.codes})
+            # req.append({"type": "orderbook", "codes": self.codes})
         self.request = req
 
     def add_subscription(self, codes: List[str]):

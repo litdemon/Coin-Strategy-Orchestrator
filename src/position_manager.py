@@ -6,10 +6,17 @@ import os
 # Add project root to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from typing import Optional, List, Dict, Any
+
+from typing import Optional, List, Dict, Any, Callable
 from models.position import Position
 from src.stratege_manager import StrategyManager, StrategyFactory
 from strategy.base import Signal
+import pyupbit
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 
 class PositionEx(Position):
@@ -230,3 +237,100 @@ class PositionManager:
 
     def load_positions(self):
         self.positions = PositionEx.load_all(self.db_path)
+        logger.info(f"[PositionManager] Loaded {len(self.positions)} positions.")
+
+    def register_positions_from_balance(self, balance_model: Any, tickers: List[str]):
+        """
+        Initializes positions based on current balance and active tickers.
+        Corresponds to Manager.init_position
+        """
+        default_rate = 0.25  # 25%
+
+        # self.positions 에 없는 것만 추가
+        for ticker in tickers:
+            # Check if active position exists for this ticker
+            if any(pos.ticker == ticker and not pos.is_closed for pos in self.positions):
+                continue
+                
+            balance = balance_model.get_balance(ticker)
+            if balance <= 0:
+                continue
+
+            entry_price = pyupbit.get_current_price(ticker)
+            
+            volume = float(balance) * default_rate
+            if volume * entry_price < 5000: # Min order amount check roughly
+                continue
+
+            pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)
+            
+            # Add default strategy: Trailing Stop
+            pos.add_strategy("trailing_stop", {
+                "trail_percent": 0.05,        # 5% trailing
+                "activation_percent": 0.01    # Activate after 1% profit
+            })
+            
+            self.positions.append(pos)
+            pos.save(self.db_path)
+            logger.info(f"[PositionManager] Auto-added Position: {pos.ticker} {pos.volume * pos.entry_price:,.0f} with TrailingStop")
+
+    def on_order_fill(self, order_info: Dict[str, Any]):
+        """
+        Handles filled orders to create new positions.
+        """
+        ticker = order_info['code']
+        ask_bid = order_info['ask_bid']
+        state = order_info['state']
+        
+        if ask_bid.lower() == "bid" and state.lower() == "done":
+            volume = order_info['volume']
+            entry_price = order_info['price']
+            
+            pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)    
+            pos.add_strategy("trailing_stop", {
+                "trail_percent": 0.05,        # 5% trailing
+                "activation_percent": 0.01    # Activate after 1% profit
+            })
+            self.positions.append(pos)
+            pos.save(self.db_path)
+            logger.info(f"[PositionManager] Created Position from Order: {pos.ticker}")
+    
+    def update_all(self, current_price_model: Any, on_signal_callback: Optional[Callable[[PositionEx, List[Signal]], None]] = None) -> bool:
+        """
+        Updates all active positions with current price and triggers strategy checks.
+        Returns True if any position triggered a signal (asking for UI update).
+        """
+        updated = False
+        for pos in self.positions:
+            if not pos.is_closed:
+                # Get current price
+                current_price = current_price_model.get(pos.ticker)
+                if current_price == 0:
+                    continue
+
+                # Update position price and check mechanisms
+                signals = pos.update_price(current_price)
+                if signals:
+                    self.handle_signal(pos, signals, current_price)
+                    if on_signal_callback:
+                        on_signal_callback(pos, signals)
+                    updated = True
+        return updated
+
+    def handle_signal(self, position: PositionEx, signals: List[Signal], current_price: float):
+        """
+        Processes signals (e.g., closes position).
+        """
+        for signal in signals:
+            if signal.type.value == "close":
+                position.close(current_price)
+                position.save(self.db_path)
+                position.archive(self.db_path) # Move to history
+                logger.info(f"[PositionManager] Executed CLOSE for {position.ticker}. Position archived.")
+                
+            elif signal.type.value == "partial_close":
+                # Implement partial close if needed
+                pass
+
+    def get_active_positions(self) -> List[PositionEx]:
+        return [p for p in self.positions if not p.is_closed]

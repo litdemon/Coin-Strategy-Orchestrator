@@ -4,6 +4,9 @@ import time
 import os
 import sys
 from typing import Dict, Any, List
+import logging  
+
+logger = logging.getLogger(__name__)
 
 class Dashboard:
     def __init__(self):
@@ -47,6 +50,7 @@ class Dashboard:
             'type': 'log',
             'message': message
         })
+        logger.info(message)
 
     def _run_loop(self):
         # Clear screen initially
