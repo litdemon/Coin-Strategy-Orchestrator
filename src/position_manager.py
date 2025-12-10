@@ -13,13 +13,11 @@ from src.stratege_manager import StrategyManager, StrategyFactory
 from strategy.base import Signal
 import pyupbit
 import logging
+from tools.db_interface import DBInterface
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-
-class PositionEx(Position):
+class PositionEx(Position, DBInterface):
     
     # Strategy 직렬화된 데이터 저장
     strategies_data: Optional[List[Dict[str, Any]]] = None
@@ -52,285 +50,71 @@ class PositionEx(Position):
         # Strategy 업데이트
         return self.strategy_manager.update(current_price)
     
-    def to_db_dict(self) -> Dict[str, Any]:
-        """DB 저장용 딕셔너리"""
-        data = self.model_dump(exclude={'_strategy_manager'})
-        if self.strategies_data:
-            data['strategies_data'] = json.dumps(self.strategies_data)
-        return data
-    
-    @classmethod
-    def from_db_dict(cls, data: Dict[str, Any]) -> 'Position':
-        """DB에서 로드"""
-        if isinstance(data.get('strategies_data'), str):
-            data['strategies_data'] = json.loads(data['strategies_data'])
-        return cls(**data)
-    
-    def save(self, db_path: str = "account.db"):
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            Position.initialize_db(db_path)
-            
-            # Serialize strategies list to JSON string if it exists
-            strategies_str = None
-            if self.strategies_data:
-                import json
-                strategies_str = json.dumps(self.strategies_data)
-                
-            # Serialize config if it exists (assuming it's JSON serializable or simple type)
-            config_str = None
-            if self.config:
-                import json
-                try:
-                    config_str = json.dumps(self.config)
-                except:
-                    config_str = str(self.config)
+    @property
+    def is_closed(self) -> bool:
+        return self.status == "closed"
 
-            cursor.execute("""
-                INSERT OR REPLACE INTO positions (
-                    id, ticker, entry_price, volume, config, entry_time,
-                    order_id, highest_price, status, close_price, "close_time", strategies_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                self.id, self.ticker, self.entry_price, self.volume, config_str, self.entry_time,
-                self.order_id, self.highest_price, self.status, self.close_price, self.close_time, strategies_str
-            ))
-            conn.commit()
-
-    def archive(self, db_path: str = "account.db"):
-        """
-        Moves the position from 'positions' table to 'position_history' table.
-        Should be called after the position is closed.
-        """
-        if not self.is_closed:
-             raise ValueError("Position must be closed before archiving.")
-
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            Position.initialize_db(db_path)
-            
-            # Serialize fields
-            strategies_str = None
-            if self.strategies_data:
-                import json
-                strategies_str = json.dumps(self.strategies_data)
-            
-            config_str = None
-            if self.config:
-                import json
-                try:
-                    config_str = json.dumps(self.config)
-                except:
-                    config_str = str(self.config)
-
-            # Insert into history
-            cursor.execute("""
-                INSERT OR REPLACE INTO position_history (
-                    id, ticker, entry_price, volume, config, entry_time,
-                    order_id, highest_price, status, close_price, "close_time", strategies_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                self.id, self.ticker, self.entry_price, self.volume, config_str, self.entry_time,
-                self.order_id, self.highest_price, self.status, self.close_price, self.close_time, strategies_str
-            ))
-            
-            # Delete from active positions
-            cursor.execute("DELETE FROM positions WHERE id = ?", (self.id,))
-            
-            conn.commit()
-
-    @classmethod
-    def load_all(cls, db_path: str = "account.db", status: Optional[str] = None) -> list["Position"]:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            PositionEx.initialize_db(db_path)
-            
-            query = "SELECT * FROM positions"
-            params = []
-            if status:
-                query += " WHERE status = ?"
-                params.append(status)
-                
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            
-            positions = []
-            for row in rows:
-                # row indices match the table columns defined in initialize_db
-                # id, ticker, entry_price, volume, config, entry_time, order_id, highest_price, status, close_price, close_time, strategies_data
-                
-                # Deserialize fields
-                config_val = row[4]
-                if config_val:
-                    try:
-                        import json
-                        config_val = json.loads(config_val)
-                    except:
-                        pass # Keep as string if json load fails
-                
-                strategies_val = row[11]
-                if strategies_val:
-                    import json
-                    strategies_val = json.loads(strategies_val)
-
-                pos = cls(
-                    id=row[0],
-                    ticker=row[1],
-                    entry_price=row[2],
-                    volume=row[3],
-                    config=config_val,
-                    entry_time=row[5],
-                    order_id=row[6],
-                    highest_price=row[7],
-                    status=row[8],
-                    close_price=row[9],
-                    close_time=row[10],
-                    strategies_data=strategies_val
-                )
-                positions.append(pos)
-            return positions
-
-    @staticmethod
-    def initialize_db(db_path: str = "account.db"):
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS positions (
-                    id TEXT PRIMARY KEY,
-                    ticker TEXT,
-                    entry_price REAL,
-                    volume REAL,
-                    config TEXT,
-                    entry_time REAL,
-                    order_id TEXT,
-                    highest_price REAL,
-                    status TEXT,
-                    close_price REAL,
-                    "close_time" REAL,
-                    strategies_data TEXT
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS position_history (
-                    id TEXT PRIMARY KEY,
-                    ticker TEXT,
-                    entry_price REAL,
-                    volume REAL,
-                    config TEXT,
-                    entry_time REAL,
-                    order_id TEXT,
-                    highest_price REAL,
-                    status TEXT,
-                    close_price REAL,
-                    "close_time" REAL,
-                    strategies_data TEXT
-                )
-            """)
-            conn.commit()
+class PositionObserver(ABC):
+    @abstractmethod
+    def on_position_updated(self, position: PositionEx, signals: List[Signal]):
+        pass
 
 class PositionManager:
     def __init__(self, db_path: str = "account.db"):
         self.db_path = db_path
-        self.positions: List[PositionEx] = []
-        self.load_positions()
+        self.positions: List[PositionEx] = PositionEx.load_all(self.db_path)
 
-    def load_positions(self):
-        self.positions = PositionEx.load_all(self.db_path)
-        logger.info(f"[PositionManager] Loaded {len(self.positions)} positions.")
-
-    def register_positions_from_balance(self, balance_model: Any, tickers: List[str]):
+    def create_if_not_exists(self, ticker, entry_price, volume):
         """
         Initializes positions based on current balance and active tickers.
-        Corresponds to Manager.init_position
         """
         default_rate = 0.25  # 25%
-
         # self.positions 에 없는 것만 추가
-        for ticker in tickers:
-            # Check if active position exists for this ticker
-            if any(pos.ticker == ticker and not pos.is_closed for pos in self.positions):
-                continue
-                
-            balance = balance_model.get_balance(ticker)
-            if balance <= 0:
-                continue
+        # Check if active position exists for this ticker
+        if ticker in [pos.ticker for pos in self.get_active_positions()]:
+            return
 
-            entry_price = pyupbit.get_current_price(ticker)
-            
-            volume = float(balance) * default_rate
-            if volume * entry_price < 5000: # Min order amount check roughly
-                continue
+        if volume * entry_price < 5000: # Min order amount check roughly
+            return
 
-            pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)
-            
-            # Add default strategy: Trailing Stop
-            pos.add_strategy("trailing_stop", {
-                "trail_percent": 0.05,        # 5% trailing
-                "activation_percent": 0.01    # Activate after 1% profit
-            })
-            
-            self.positions.append(pos)
-            pos.save(self.db_path)
-            logger.info(f"[PositionManager] Auto-added Position: {pos.ticker} {pos.volume * pos.entry_price:,.0f} with TrailingStop")
+        pos = self.default_position(ticker, entry_price, volume)
+        logger.info(f"[PositionManager] Auto-added Position: {pos.ticker} {pos.volume * pos.entry_price:,.0f} with TrailingStop")
 
-    def on_order_fill(self, order_info: Dict[str, Any]):
+    def default_position(self, ticker: str, entry_price: float, volume: float):
         """
         Handles filled orders to create new positions.
         """
-        ticker = order_info['code']
-        ask_bid = order_info['ask_bid']
-        state = order_info['state']
         
-        if ask_bid.lower() == "bid" and state.lower() == "done":
-            volume = order_info['volume']
-            entry_price = order_info['price']
-            
-            pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)    
-            pos.add_strategy("trailing_stop", {
+        pos = PositionEx(ticker=ticker, entry_price=entry_price, volume=volume)    
+        pos.add_strategy("trailing_stop", {
                 "trail_percent": 0.05,        # 5% trailing
                 "activation_percent": 0.01    # Activate after 1% profit
             })
-            self.positions.append(pos)
-            pos.save(self.db_path)
-            logger.info(f"[PositionManager] Created Position from Order: {pos.ticker}")
+        self.positions.append(pos)
+        pos.save(self.db_path)
+        logger.info(f"[PositionManager] Created Position from Order: {pos.ticker}")
+        return pos
     
-    def update_all(self, current_price_model: Any, on_signal_callback: Optional[Callable[[PositionEx, List[Signal]], None]] = None) -> bool:
+    def update_all(self, current_prices: Dict[str, float]) -> bool:
         """
         Updates all active positions with current price and triggers strategy checks.
         Returns True if any position triggered a signal (asking for UI update).
         """
         updated = False
         for pos in self.positions:
-            if not pos.is_closed:
-                # Get current price
-                current_price = current_price_model.get(pos.ticker)
-                if current_price == 0:
-                    continue
+            if pos.status == "closed":
+                continue
+            # Get current price
+            current_price = current_prices.get(pos.ticker)
+            if current_price == 0:
+                continue
 
-                # Update position price and check mechanisms
-                signals = pos.update_price(current_price)
-                if signals:
-                    self.handle_signal(pos, signals, current_price)
-                    if on_signal_callback:
-                        on_signal_callback(pos, signals)
-                    updated = True
+            # Update position price and check mechanisms
+            signals = pos.update_price(current_price)
+            if signals:
+                self.on_position_updated(pos, signals)
+                updated = True
         return updated
-
-    def handle_signal(self, position: PositionEx, signals: List[Signal], current_price: float):
-        """
-        Processes signals (e.g., closes position).
-        """
-        for signal in signals:
-            if signal.type.value == "close":
-                position.close(current_price)
-                position.save(self.db_path)
-                position.archive(self.db_path) # Move to history
-                logger.info(f"[PositionManager] Executed CLOSE for {position.ticker}. Position archived.")
-                
-            elif signal.type.value == "partial_close":
-                # Implement partial close if needed
-                pass
 
     def get_active_positions(self) -> List[PositionEx]:
         return [p for p in self.positions if not p.is_closed]

@@ -102,7 +102,7 @@ class UpbitWebSocket(UpbitWebSocketBase):
         if self.codes:
             req.append({"type": "ticker", "codes": self.codes})
             # req.append({"type": "trade", "codes": self.codes})
-            # req.append({"type": "orderbook", "codes": self.codes})
+            req.append({"type": "orderbook", "codes": self.codes})
         self.request = req
 
     def add_subscription(self, codes: List[str]):

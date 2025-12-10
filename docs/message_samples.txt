@@ -1,6 +1,176 @@
-#[Sink] Received: {'type': 'myOrder', 'code': 'KRW-DOGE', 'uuid': '171e0295-ff97-4e35-a8d4-4119b83a0031', 'ask_bid': 'BID', 'order_type': 'limit', 'state': 'wait', 'trade_uuid': None, 'price': 217, 'avg_price': 0, 'volume': 25.34562211, 'remaining_volume': 25.34562211, 'executed_volume': 0, 'trades_count': 0, 'reserved_fee': 2.749999998935, 'remaining_fee': 2.749999998935, 'paid_fee': 0, 'locked': 5502.749997868935, 'executed_funds': 0, 'time_in_force': None, 'trade_fee': None, 'is_maker': None, 'identifier': None, 'smp_type': None, 'prevented_volume': 0, 'prevented_locked': 0, 'trade_timestamp': None, 'order_timestamp': 1764926711000, 'timestamp': 1764926711603, 'stream_type': 'REALTIME'}
-#[Sink] Received: {'type': 'myAsset', 'asset_uuid': '922ec4bd-a777-4a14-876b-5db42f7cef15', 'assets': [{'currency': 'KRW', 'balance': 41799.646231357416, 'locked': 0}], 'asset_timestamp': 1764926711610, 'timestamp': 1764926711620, 'stream_type': 'REALTIME'}
-#[Sink] Received: {'type': 'myOrder', 'code': 'KRW-DOGE', 'uuid': '171e0295-ff97-4e35-a8d4-4119b83a0031', 'ask_bid': 'BID', 'order_type': 'limit', 'state': 'trade', 'trade_uuid': '3406d852-bb18-4150-ba41-ed22429c8c02', 'price': 217, 'avg_price': 217.1085, 'volume': 25.34562211, 'remaining_volume': 0, 'executed_volume': 25.34562211, 'trades_count': 1, 'reserved_fee': 2.749999998935, 'remaining_fee': 0, 'paid_fee': 2.749999998935, 'locked': 0, 'executed_funds': 5499.99999787, 'time_in_force': None, 'trade_fee': 2.749999998935, 'is_maker': False, 'identifier': None, 'smp_type': None, 'prevented_volume': 0, 'prevented_locked': 0, 'trade_timestamp': 1764926711569, 'order_timestamp': 1764926711000, 'timestamp': 1764926711634, 'stream_type': 'REALTIME'}
-#[Sink] Received: {'type': 'myOrder', 'code': 'KRW-DOGE', 'uuid': '171e0295-ff97-4e35-a8d4-4119b83a0031', 'ask_bid': 'BID', 'order_type': 'limit', 'state': 'done', 'trade_uuid': None, 'price': 217, 'avg_price': 217.1085, 'volume': 25.34562211, 'remaining_volume': 0, 'executed_volume': 25.34562211, 'trades_count': 1, 'reserved_fee': 2.749999998935, 'remaining_fee': 0, 'paid_fee': 2.749999998935, 'locked': 0, 'executed_funds': 5499.99999787, 'time_in_force': None, 'trade_fee': None, 'is_maker': None, 'identifier': None, 'smp_type': None, 'prevented_volume': None, 'prevented_locked': None, 'trade_timestamp': None, 'order_timestamp': 1764926711000, 'timestamp': 1764926711635, 'stream_type': 'REALTIME'}
-#[Sink] Received: {'type': 'myAsset', 'asset_uuid': '375cd744-d8f2-4183-b1e4-8b76b3236ed6', 'assets': [{'currency': 'KRW', 'balance': 41799.646231357416, 'locked': 0}], 'asset_timestamp': 1764926711641, 'timestamp': 1764926711650, 'stream_type': 'REALTIME'}
-#[Sink] Received: {'type': 'myAsset', 'asset_uuid': '986f8329-84ca-4652-bdb7-6dc3b09fde7c', 'assets': [{'currency': 'DOGE', 'balance': 2902.72333341, 'locked': 0}], 'asset_timestamp': 1764926711641, 'timestamp': 1764926711651, 'stream_type': 'REALTIME'}
+--------------------------------------------
+# myOrder message
+--------------------------------------------
+
+{
+  'type': 'myOrder',
+  'code': 'KRW-DOGE',
+  'uuid': '171e0295-ff97-4e35-a8d4-4119b83a0031',
+  'ask_bid': 'BID',
+  'order_type': 'limit',
+  'state': 'wait',
+  'trade_uuid': None,
+  'price': 217,
+  'avg_price': 0,
+  'volume': 25.34562211,
+  'remaining_volume': 25.34562211,
+  'executed_volume': 0,
+  'trades_count': 0,
+  'reserved_fee': 2.749999998935,
+  'remaining_fee': 2.749999998935,
+  'paid_fee': 0,
+  'locked': 5502.749997868935,
+  'executed_funds': 0,
+  'time_in_force': None,
+  'trade_fee': None,
+  'is_maker': None,
+  'identifier': None,
+  'smp_type': None,
+  'prevented_volume': 0,
+  'prevented_locked': 0,
+  'trade_timestamp': None,
+  'order_timestamp': 1764926711000,
+  'timestamp': 1764926711603,
+  'stream_type': 'REALTIME'
+}
+{
+  'type': 'myOrder',
+  'code': 'KRW-DOGE',
+  'uuid': '171e0295-ff97-4e35-a8d4-4119b83a0031',
+  'ask_bid': 'BID',
+  'order_type': 'limit',
+  'state': 'trade',
+  'trade_uuid': '3406d852-bb18-4150-ba41-ed22429c8c02',
+  'price': 217,
+  'avg_price': 217.1085,
+  'volume': 25.34562211,
+  'remaining_volume': 0,
+  'executed_volume': 25.34562211,
+  'trades_count': 1,
+  'reserved_fee': 2.749999998935,
+  'remaining_fee': 0,
+  'paid_fee': 2.749999998935,
+  'locked': 0,
+  'executed_funds': 5499.99999787,
+  'time_in_force': None,
+  'trade_fee': 2.749999998935,
+  'is_maker': False,
+  'identifier': None,
+  'smp_type': None,
+  'prevented_volume': 0,
+  'prevented_locked': 0,
+  'trade_timestamp': 1764926711569,
+  'order_timestamp': 1764926711000,
+  'timestamp': 1764926711634,
+  'stream_type': 'REALTIME'
+}
+{
+  'type': 'myOrder',
+  'code': 'KRW-DOGE',
+  'uuid': '171e0295-ff97-4e35-a8d4-4119b83a0031',
+  'ask_bid': 'BID',
+  'order_type': 'limit',
+  'state': 'done',
+  'trade_uuid': None,
+  'price': 217,
+  'avg_price': 217.1085,
+  'volume': 25.34562211,
+  'remaining_volume': 0,
+  'executed_volume': 25.34562211,
+  'trades_count': 1,
+  'reserved_fee': 2.749999998935,
+  'remaining_fee': 0,
+  'paid_fee': 2.749999998935,
+  'locked': 0,
+  'executed_funds': 5499.99999787,
+  'time_in_force': None,
+  'trade_fee': None,
+  'is_maker': None,
+  'identifier': None,
+  'smp_type': None,
+  'prevented_volume': None,
+  'prevented_locked': None,
+  'trade_timestamp': None,
+  'order_timestamp': 1764926711000,
+  'timestamp': 1764926711635,
+  'stream_type': 'REALTIME'
+}
+--------------------------------------------
+# myAsset message
+--------------------------------------------
+{
+  'type': 'myAsset',
+  'asset_uuid': '922ec4bd-a777-4a14-876b-5db42f7cef15',
+  'assets': [
+    {
+      'currency': 'KRW',
+      'balance': 41799.646231357416,
+      'locked': 0
+    }
+  ],
+  'asset_timestamp': 1764926711610,
+  'timestamp': 1764926711620,
+  'stream_type': 'REALTIME'
+}
+--------------------------------------------
+
+{
+  'type': 'myAsset',
+  'asset_uuid': '375cd744-d8f2-4183-b1e4-8b76b3236ed6',
+  'assets': [
+    {
+      'currency': 'KRW',
+      'balance': 41799.646231357416,
+      'locked': 0
+    }
+  ],
+  'asset_timestamp': 1764926711641,
+  'timestamp': 1764926711650,
+  'stream_type': 'REALTIME'
+}
+{
+  'type': 'myAsset',
+  'asset_uuid': '986f8329-84ca-4652-bdb7-6dc3b09fde7c',
+  'assets': [
+    {
+      'currency': 'DOGE',
+      'balance': 2902.72333341,
+      'locked': 0
+    }
+  ],
+  'asset_timestamp': 1764926711641,
+  'timestamp': 1764926711651,
+  'stream_type': 'REALTIME'
+}
+---------------------------------------
+# order book message
+---------------------------------------
+{
+  'type': 'orderbook',
+  'code': 'KRW-BTC',
+  'timestamp': 1765362482944,
+  'total_ask_size': 9.28537353,
+  'total_bid_size': 1.53769429,
+  'orderbook_units': [
+    {
+      'ask_price': 137495000.0,
+      'bid_price': 137447000.0,
+      'ask_size': 0.0025445,
+      'bid_size': 0.0215
+    },
+    {
+      'ask_price': 137496000.0,
+      'bid_price': 137446000.0,
+      'ask_size': 0.00783238,
+      'bid_size': 0.03375376
+    },
+    {
+      'ask_price': 137733000.0,
+      'bid_price': 137373000.0,
+      'ask_size': 0.003,
+      'bid_size': 0.11524446
+    }
+  ],
+  'stream_type': 'REALTIME',
+  'level': 0
+}

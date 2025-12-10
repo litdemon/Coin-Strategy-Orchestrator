@@ -1,6 +1,5 @@
 import os
 import time
-import asyncio
 import logging
 import pyupbit
 import sys
@@ -11,13 +10,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from typing import List, Tuple
 from dotenv import load_dotenv
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
-from account.models import Balance, Asset
+
 import pyupbit
 
 # Use PositionEx instead of base Position
 from src.position_manager import PositionEx, PositionManager
 from src.stratege_manager import StrategyFactory
-from src.order_manager import OrderInfoEx
 
 # Import models
 from models.trade import Trade
@@ -26,6 +24,8 @@ from models.my_asset import MyAsset
 from strategy.base import SignalType, Signal
 from tools.candle import Candle
 from tools.ticker import TickerStr
+from account.account import Account
+from queue import Queue
 
 logger = logging.getLogger(__name__)
 
@@ -43,18 +43,24 @@ from src.current_price import CurrentPrice
 from src.order_manager import OrderManager
 
 class Manager(WebsocketObserver):
-    def __init__(self):
+    def __init__(self, virtual: bool = False):
         self.dashboard = Dashboard() # Initialize Dashboard
 
-        self.balance = Balance.load(DB_PATH)
-        self.tickers = [ TickerStr(key).ticker for key in self.balance.assets.keys() if key != "KRW" ]
-        self.upbit_websocket = UpbitWebSocket(codes=self.tickers, observer=self)
+        if virtual:
+            self.account = Account(callback=self.on_ws_message)
+        else:
+            self.account = AccountUpbit(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
+
+        balance = self.account.get_balances()
+        tickers = [ asset.currency for asset in balance if asset.currency != "KRW" ]
+
+        self.upbit_websocket = UpbitWebSocket(codes=tickers, observer=self)
         self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
         self.current_price = CurrentPrice()
         # self.stratege = {ticker: [TrailingStopPolicy(0.05)] for ticker in self.tickers} # Obsolete
-        self.position_manager = PositionManager(db_path=DB_PATH)
-        self.orders: OrderManager = OrderManager(on_order_complete=self.on_my_order, db_path=DB_PATH)
 
+        self.position_manager = PositionManager(db_path=DB_PATH)
+        self.task_queue = Queue()
 
     def init_position(self):
         # Delegate to PositionManager
@@ -71,6 +77,15 @@ class Manager(WebsocketObserver):
         self.init_position()
         self.upbit_websocket.start()
         self.upbit_asset.start()
+
+        is_stop = False
+        task_count = 0
+        while not is_stop:
+            task = self.task_queue.get()
+            is_stop = self.on_task(task)
+            task_count += 1
+            if task_count % 100 == 0:
+                print(f"Processed {task_count} tasks")
 
     def stop(self):
         self.upbit_websocket.stop()
@@ -117,22 +132,31 @@ class Manager(WebsocketObserver):
         self.dashboard.log("WebSocket Closed")
 
     def on_ws_message(self, cls, message: dict):
-        line = ""
-        if message["type"] == "ticker":
-            self.current_price.update(message['code'], message['trade_price'])
-            self.on_ticker(message)
-        elif message["type"] == "orderbook":
-            
-            pass
-        elif message["type"] == "trade":
-            self.current_price.update(message['code'], message['trade_price'])
-            self.on_trade(message)
-        elif message["type"] == "myOrder":
-            self.on_my_order(cls, message)
-        elif message["type"] == "myAsset":
-            self.on_my_asset(cls, message)
+        self.task_queue.put({"cls": cls, "message": message})   
+
+    def on_task(self, cls, message: dict):
+        
+        
+        if isinstance(cls, UpbitWebSocket):
+            if message["type"] == "ticker":
+                self.current_price.update(message['code'], message['trade_price'])
+                self.on_ticker(message)
+            elif message["type"] == "orderbook":
+                self.on_orderbook(message)
+            elif message["type"] == "trade":
+                self.current_price.update(message['code'], message['trade_price'])
+                self.on_trade(message)
+            else:
+                raise Exception(f"Unknown message type: {message['type']} from {cls}")
+        elif isinstance(cls, UpbitWebSocketPrivate):
+            if message["type"] == "myOrder":
+                self.on_my_order(cls, message)
+            elif message["type"] == "myAsset":
+                self.on_my_asset(cls, message)
+            else:
+                raise Exception(f"Unknown message type: {message['type']} from {cls}")
         else:
-            pass
+            raise Exception(f"Unknown class: {cls}")
         
     def on_my_order(self, cls, message: dict):
         ticker = message['code']
@@ -148,12 +172,7 @@ class Manager(WebsocketObserver):
         # 새로운 position 생성
         self.position_manager.on_order_fill(message)
 
-
-        
         if ask_bid == "bid" and state == "done":
-            #계좌의 평균 매입 가격 업데이트
-            
-            # Logic moved to Manager, just refresh dashboard
             self._update_all_positions_dashboard()
         elif ask_bid == "cancel":
             pass
@@ -195,6 +214,7 @@ class Manager(WebsocketObserver):
                     
 
     def on_orderbook(self, message: dict):
+        # logger.info(message)
         pass
 
     def on_trade(self, message: dict):
@@ -211,33 +231,18 @@ class Manager(WebsocketObserver):
             self.dashboard.log(f"SIGNAL {position.ticker}: {signal.type.value} - {signal.reason}")
 
 
-
-def sync_with_upbit():
-    
-    balance = Balance.load(DB_PATH)
-    upbit = pyupbit.Upbit(UPBIT_ACCESS_KEY, UPBIT_SECRET_KEY)
-    assets = upbit.get_balances()
-    balance.assets = []
-    for asset in assets:
-        balance.assets.append(Asset(**asset))
-    
-    balance.save(DB_PATH)
-
-
     # -- Main -------------------------------------
 if __name__ == "__main__":
     time_format = "%m-%d %H:%M:%S"
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
     logging.basicConfig(level=logging.DEBUG, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
     Asset.initialize_db()
-    OrderInfoEx.initialize_db()
-    # sync_with_upbit() 
-    # 
+
     manager = Manager()
-    manager.run()
+    
     try:
         while True:
-            time.sleep(1)
+            manager.run()
     except KeyboardInterrupt:
         manager.stop()
 
