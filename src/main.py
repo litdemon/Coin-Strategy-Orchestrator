@@ -122,6 +122,14 @@ class Manager(WebsocketObserver):
 
     def on_task(self, cls, message: dict):
         
+        # Check for AccountManager (virtual account updates)
+        # We check class name or instance because direct import might lead to circular dependency if not careful,
+        # but importing AccountManager is fine here.
+        # Check if cls has 'process_order_complete' or similar unique method, or just import it.
+        # Let's use string check or import.
+        
+        is_virtual_manager = hasattr(cls, 'process_order_complete') # Duck typing for AccountManager
+
         if isinstance(cls, UpbitWebSocket):
 
             if message["type"] == "ticker":
@@ -136,14 +144,18 @@ class Manager(WebsocketObserver):
                     self.on_trade(message)
             else:
                 raise Exception(f"Unknown message type: {message['type']} from {cls}")
-        elif isinstance(cls, UpbitWebSocketPrivate):
+        elif isinstance(cls, UpbitWebSocketPrivate) or is_virtual_manager:
 
             if message["type"] == "myOrder":
                 self.on_my_order(cls, message)
             elif message["type"] == "myAsset":
                 self.on_my_asset(cls, message)
             else:
-                raise Exception(f"Unknown message type: {message['type']} from {cls}")
+                if is_virtual_manager:
+                    # Virtual manager might send other types? For now only myAsset.
+                    pass
+                else:
+                    raise Exception(f"Unknown message type: {message['type']} from {cls}")
         else:
             raise Exception(f"Unknown class: {cls}")
         
@@ -173,8 +185,10 @@ class Manager(WebsocketObserver):
         for asset in assets:
             ticker = asset['currency']
             balance = asset['balance']
-            self.balance.set_balance(ticker, balance)
-            self.dashboard.log(f"Asset Update: {ticker}: {balance:.0f}")
+            # self.balance is undefined in Manager. Update dashboard instead.
+            # Assuming update_balance takes the asset dict.
+            self.dashboard.update_balance(asset)
+            self.dashboard.log(f"Asset Update: {ticker}: {balance:.4f}")
             
 
     def on_ticker(self, message: dict):

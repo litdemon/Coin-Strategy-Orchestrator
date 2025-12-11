@@ -11,6 +11,8 @@ from tools.ticker import Ticker
 
 logger = logging.getLogger(__name__)
 
+MAX_WIDTH = 120
+
 class LogWidget:
     def __init__(self):
         self.logs = []
@@ -142,7 +144,7 @@ class TickerWidget:
         else:
             output.append(f"   └── No Active Positions")
         
-        output.append("-" * 90)
+        output.append("-" * MAX_WIDTH)
         return output
 
 class Dashboard:
@@ -279,9 +281,9 @@ class Dashboard:
         sys.stdout.write("\033[H")
         
         output = []
-        output.append("=" * 80)
+        output.append("=" * MAX_WIDTH)
         output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')})")
-        output.append("=" * 80)
+        output.append("=" * MAX_WIDTH)
         
         with self.lock:
             # Sort tickers for consistent display
