@@ -7,7 +7,7 @@ import time
 import json
 
 if TYPE_CHECKING:
-    from models.position import Position
+    from models.position import PositionBase
 
 
 class SignalType(Enum):

@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from strategy.base import StrategyBase, Signal, SignalType, StrategyConfig
 from typing import Optional, Dict, Any, List
-from models.position import Position
+from models.position import PositionBase
 from strategy.tailingstop import TrailingStopStrategy, TakeProfitStrategy, StopLossStrategy
 from strategy.tailingstop import TrailingStopConfig, TakeProfitConfig, StopLossConfig
 
@@ -63,7 +63,7 @@ class StrategyFactory:
 class StrategyManager:
     """Position의 Strategy들을 관리"""
     
-    def __init__(self, position: Position):
+    def __init__(self, position: PositionBase):
         self.position = position
         self.strategies: List[StrategyBase] = []
         self._load_strategies()

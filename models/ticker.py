@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
-class Ticker(BaseModel):
+class TickerMsg(BaseModel):
     type: str  # "ticker"
     code: str
     opening_price: float

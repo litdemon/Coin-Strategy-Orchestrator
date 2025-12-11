@@ -7,7 +7,7 @@ import os
 from pydantic import BaseModel, Field
 from typing import Optional, Any, List
 
-class Position(BaseModel):
+class PositionBase(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     ticker: str
     entry_price: float

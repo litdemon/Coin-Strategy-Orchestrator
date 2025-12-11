@@ -7,7 +7,7 @@ class TickerBase:
     unit_currency: str
     
 
-class TickerStr(TickerBase):
+class Ticker(TickerBase):
     def __init__(self, ticker_str:str):
         if '-' in ticker_str:
             parts = ticker_str.split('-')
@@ -19,10 +19,12 @@ class TickerStr(TickerBase):
 
     @property
     def ticker(self):
+        if self.currency == "KRW":
+            return self.currency
         return f"{self.unit_currency}-{self.currency}"
 
     def __eq__(self, other: Any) -> bool:
-        if isinstance(other, TickerStr):
+        if isinstance(other, Ticker):
             return self.ticker == other.ticker
         elif isinstance(other, str):
             return other in [self.ticker, self.currency]

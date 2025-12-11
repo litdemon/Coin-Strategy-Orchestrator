@@ -4,7 +4,7 @@ import os
 # Add project root to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.position_manager import PositionEx as Position
+from src.position_manager import Position
 from src.stratege_manager import StrategyFactory
 from strategy.tailingstop import TakeProfitStrategy, TakeProfitConfig, SignalType
 from strategy.base import StrategyConfig, StrategyBase, Signal

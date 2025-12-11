@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from typing import List, Optional, Any, Callable
 
-from tools.ticker import TickerStr as Ticker
+from tools.ticker import Ticker
 from tools.db_interface import DBInterface
 from models.my_asset import MyAsset, AssetItem
 from models.my_order import MyOrder
@@ -144,7 +144,7 @@ class Balance(BalanceBase, DBInterface):
         return cls(assets=assets)
 
     def get_balances(self) -> List[dict]:
-        return [asset.to_dict() for asset in self.assets.values()]
+        return [asset.model_dump() for asset in self.assets.values()]
 
     def get_balance(self, ticker: str) -> Decimal:
         ticker_obj = Ticker(ticker)
@@ -304,7 +304,7 @@ class Account(AccountBase):
         return self.balance.get_balances()
     
     def get_orders(self) -> List[dict]:
-        return self.orders.get_orders()
+        return OrderDB.load(state="wait").values()
     
     def get_current_price(self, ticker: str) -> Decimal:
         return pyupbit.get_current_price(ticker)
@@ -383,6 +383,7 @@ class Account(AccountBase):
                                 locked=volume, 
                                 executed_volume=0.0, 
                                 trades_count=0)
+        orderinfo.save()
         self.orders[orderinfo.uuid] = orderinfo
         return orderinfo
     
@@ -425,13 +426,11 @@ class Account(AccountBase):
 
     def check_order(self, market: str, orderbook_units: List[dict]) -> OrderInfo:
         # 현재 가격
+        if orderbook_units is None or len(orderbook_units) == 0:
+            return None
         orderbook_unit = orderbook_units[0]
 
-        for order in self.orders.values():
-            if order.market != market:
-                continue
-            if order.state != "wait":
-                continue
+        for order in self.get_order(market, "wait"):
 
             if order.ord_type == "limit":
                 if order.side == "bid":

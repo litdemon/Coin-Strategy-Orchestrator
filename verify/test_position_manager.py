@@ -7,7 +7,7 @@ from typing import List
 # Add project root to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.position_manager import PositionManager, PositionEx
+from src.position_manager import PositionManager, Position
 from strategy.base import Signal, SignalType
 
 class MockBalance:
