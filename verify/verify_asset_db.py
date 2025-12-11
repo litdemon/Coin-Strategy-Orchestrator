@@ -8,6 +8,8 @@ def verify_asset_db():
     # Remove existing db if exists
     if os.path.exists(db_path):
         os.remove(db_path)
+    
+    Asset.initialize_db(db_path)
 
     # Create dummy data
     data = [
@@ -28,11 +30,12 @@ def verify_asset_db():
     print("Loaded from DB:", loaded_balance)
 
     # Verify
-    assert len(loaded_balance.assets) == 2
-    assert loaded_balance.assets[0].currency == 'KRW'
-    assert loaded_balance.assets[0].balance == Decimal('1000000')
-    assert loaded_balance.assets[1].currency == 'BTC'
-    assert loaded_balance.assets[1].balance == Decimal('0.5')
+    assets = loaded_balance.get_all_assets()
+    assert len(assets) == 2
+    assert assets[0].currency == 'KRW'
+    assert assets[0].balance == Decimal('1000000')
+    assert assets[1].currency == 'BTC'
+    assert assets[1].balance == Decimal('0.5')
     
     print("Verification Successful!")
     

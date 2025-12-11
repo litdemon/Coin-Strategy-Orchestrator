@@ -4,7 +4,7 @@ from strategy.base import StrategyBase, Signal, SignalType, StrategyConfig
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from models.position import Position
+    from models.position import PositionBase
 
 
 class TrailingStopConfig(StrategyConfig):

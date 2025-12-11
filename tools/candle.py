@@ -1,5 +1,5 @@
-
-
+import pandas as pd
+from typing import List
 
 class Candle:
     def __init__(self, code: str, price: float):
@@ -8,21 +8,32 @@ class Candle:
         self.high = price
         self.low = price
         self.close = price
+        self.prev = price
 
     def update(self, price: float):
+        self.prev = self.close
         self.close = price
         if price > self.high:
             self.high = price
         if price < self.low:
             self.low = price
+        
+    def is_updated(self):
+        return self.close != self.prev
 
-    def reset(self, price: float):
-        self.open = price
-        self.high = price
-        self.low = price
-        self.close = price
+    def reset(self, ohlcv: pd.DataFrame):
+        self.open = ohlcv['open'].iloc[-1]
+        self.high = ohlcv['high'].iloc[-1]
+        self.low = ohlcv['low'].iloc[-1]
+        self.close = ohlcv['close'].iloc[-1]
+
+    def current_price(self):
+        return self.close
 
     def render(self, width: int = 20) -> str:
+        if self.open == 0:
+            return "Wait..."
+
         # Determine color
         is_up = self.close >= self.open
         # ANSI Colors: Red (31), Blue (34), Reset (0)
@@ -34,7 +45,12 @@ class Candle:
         if total_range == 0:
             # Flat line
             bar = "-" * width
-            return f"{self.low/self.open:.1f}%[{color_code}{bar}{reset_code}]{self.high/self.open:.1f}%"
+            if self.open != 0:
+                low_pct = (self.low/self.open - 1) * 100
+                high_pct = (self.high/self.open - 1) * 100
+                return f"{low_pct:.1f}%[{color_code}{bar}{reset_code}]{high_pct:.1f}%"
+            else:
+                return f"0.0%[{color_code}{bar}{reset_code}]0.0%"
 
         # Map prices to positions
         # [0 ... width-1]
