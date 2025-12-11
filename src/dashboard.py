@@ -169,16 +169,19 @@ class Dashboard:
             raise ValueError("Invalid message: KRW")
         if message.get('type', '') != 'ticker':
             raise ValueError(f"Invalid message type: {message['type']}")
+        
+        t = Ticker(message.get('code', ''))
         self.queue.put({
             'type': 'ticker',
-            'ticker': message.get('code', ''),
+            'ticker': t.ticker,
             'price': message.get('trade_price', 0)
         })
 
     def update_balance(self, balance: dict):
+        t = Ticker(balance['currency'])
         self.queue.put({
             'type': 'balance',
-            'ticker': balance['currency'],
+            'ticker': t.ticker,
             'amount': balance['balance'],
             'avg_buy_price': balance['avg_buy_price']
         })
