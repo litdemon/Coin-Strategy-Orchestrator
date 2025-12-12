@@ -106,8 +106,12 @@ class Manager(WebsocketObserver):
 
         # Log loaded positions
         for pos in self.position_manager.positions.values():
-            # self.dashboard.update_positions(pos)
             self.dashboard.log(f"Loaded Position: {pos.ticker:<10} {pos.entry_price:<10,.0f} {pos.volume * pos.entry_price:,.0f}")
+        
+        # Update dashboard with loaded positions
+        loaded_tickers = set(pos.ticker for pos in self.position_manager.positions.values())
+        for ticker in loaded_tickers:
+            self._update_positions_dashboard(ticker)
         
         
 
@@ -284,7 +288,7 @@ class Manager(WebsocketObserver):
         self.position_manager.on_order_fill(message)
 
         if ask_bid == "bid" and state == "done":
-            self._update_all_positions_dashboard()
+            self._update_positions_dashboard(ticker)
         elif ask_bid == "cancel":
             pass
         else:
@@ -330,6 +334,18 @@ class Manager(WebsocketObserver):
         for signal in signals:
             self.dashboard.log(f"SIGNAL {position.ticker}: {signal.type.value} - {signal.reason}")
 
+    def _update_positions_dashboard(self, ticker: str):
+        """Update dashboard with current positions for the ticker."""
+        positions = self.position_manager.get_positions(ticker, only_active=True)
+        pos_data = []
+        for p in positions:
+            pos_data.append({
+                'id': p.id,
+                'entry_price': p.entry_price,
+                'volume': p.volume,
+                'strategies': [] # TODO: Add strategies when available in Position model
+            })
+        self.dashboard.update_positions(ticker, pos_data)
 
     # -- Main -------------------------------------
 if __name__ == "__main__":

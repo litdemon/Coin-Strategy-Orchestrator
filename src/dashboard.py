@@ -188,6 +188,18 @@ class Dashboard:
             'avg_buy_price': balance['avg_buy_price']
         })
 
+    def update_positions(self, ticker: str, positions: List[Dict[str, Any]]):
+        """
+        Update positions for a specific ticker.
+        positions: list of dicts with keys: id, entry_price, volume, strategies
+        """
+        t = Ticker(ticker)
+        self.queue.put({
+            'type': 'positions',
+            'ticker': t.ticker,
+            'data': positions
+        })
+
     def log(self, message: str):
         self.queue.put({
             'type': 'log',
