@@ -1,179 +1,159 @@
 
-
-from strategy.base import StrategyBase, Signal, SignalType, StrategyConfig
-from typing import Optional, Dict, Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from models.position import PositionBase
-
+from decimal import Decimal
+from typing import Optional, Dict, Any, Type
+from strategy.base import StrategyBase
+from strategy.models import StrategyContext, StrategyConfig, Signal, SignalType
 
 class TrailingStopConfig(StrategyConfig):
     strategy_type: str = "trailing_stop"
-    trail_percent: float  # 추적 퍼센트 (0.05 = 5%)
-    activation_percent: Optional[float] = None  # 활성화 조건
+    trail_percent: Decimal  # 0.05 = 5%
+    activation_percent: Optional[Decimal] = None
+    entry_price: Decimal # Required to calculate profit for activation
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 class TrailingStopStrategy(StrategyBase):
-    """트레일링 스탑 전략"""
+    """Trailing Stop Strategy Implementation."""
     
-    def __init__(self, position_id: str, config: TrailingStopConfig):
-        super().__init__(position_id, config)
-        self.highest_price: Optional[float] = None
-        self.stop_price: Optional[float] = None
-        self.activated: bool = False
-    
-    def update(self, current_price: float, position: 'Position') -> Optional[Signal]:
-        config: TrailingStopConfig = self.config
+    # Class attribute to help Manager identify config model
+    ConfigModel = TrailingStopConfig
+
+    def __init__(self, context: StrategyContext, config: TrailingStopConfig):
+        super().__init__(context, config)
+        self.config: TrailingStopConfig = config # Type hinting
         
-        # 최고가 업데이트
+        # State
+        self.highest_price: Optional[Decimal] = None
+        self.stop_price: Optional[Decimal] = None
+        self.activated: bool = False
+
+    def on_tick(self, current_price: Decimal) -> Optional[Signal]:
+        # Update highest price
         if self.highest_price is None or current_price > self.highest_price:
             self.highest_price = current_price
             
-            # 활성화 조건 체크
-            if config.activation_percent:
-                profit_percent = (current_price - position.entry_price) / position.entry_price
-                if not self.activated and profit_percent >= config.activation_percent:
+            # Check Activation
+            if self.config.activation_percent:
+                profit_percent = (current_price - self.config.entry_price) / self.config.entry_price
+                if not self.activated and profit_percent >= self.config.activation_percent:
                     self.activated = True
             else:
                 self.activated = True
             
-            # 스탑 가격 업데이트
+            # Update Stop Price
             if self.activated:
-                self.stop_price = self.highest_price * (1 - config.trail_percent)
-        
-        # 스탑 조건 체크
+                self.stop_price = self.highest_price * (Decimal("1") - self.config.trail_percent)
+
+        # Check Stop Condition
         if self.activated and self.stop_price and current_price <= self.stop_price:
             return self.emit_signal(Signal(
-                type=SignalType.CLOSE,
-                position_id=self.position_id,
+                type=SignalType.CLOSE_POSITION,
+                strategy_id=self.context.strategy_id,
+                ticker=self.context.ticker,
                 reason=f"Trailing stop triggered at {current_price}",
-                data={"stop_price": self.stop_price, "highest_price": self.highest_price}
+                data={
+                    "stop_price": self.stop_price, 
+                    "highest_price": self.highest_price
+                }
             ))
         
         return None
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def get_state(self) -> Dict[str, Any]:
         return {
-            "strategy_type": "trailing_stop",
-            "position_id": self.position_id,
-            "config": self.config.model_dump(),
-            "state": {
-                "highest_price": self.highest_price,
-                "stop_price": self.stop_price,
-                "activated": self.activated
-            }
+            "highest_price": str(self.highest_price) if self.highest_price else None,
+            "stop_price": str(self.stop_price) if self.stop_price else None,
+            "activated": self.activated
         }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'TrailingStopStrategy':
-        config = TrailingStopConfig(**data["config"])
-        strategy = cls(data["position_id"], config)
-        
-        # 상태 복원
-        state = data.get("state", {})
-        strategy.highest_price = state.get("highest_price")
-        strategy.stop_price = state.get("stop_price")
-        strategy.activated = state.get("activated", False)
-        
-        return strategy
+
+    def restore_state(self, state: Dict[str, Any]):
+        self.highest_price = Decimal(state["highest_price"]) if state.get("highest_price") else None
+        self.stop_price = Decimal(state["stop_price"]) if state.get("stop_price") else None
+        self.activated = state.get("activated", False)
 
 
 class TakeProfitConfig(StrategyConfig):
     strategy_type: str = "take_profit"
-    target_percent: float  # 목표 수익률
-    partial: bool = False  # 부분 청산 여부
-    partial_ratio: float = 0.5  # 부분 청산 비율
+    entry_price: Decimal
+    target_percent: Decimal
+    partial: bool = False
+    partial_ratio: Decimal = Decimal("0.5")
 
+    class Config:
+        arbitrary_types_allowed = True
 
 class TakeProfitStrategy(StrategyBase):
-    """이익 실현 전략"""
-    
-    def __init__(self, position_id: str, config: TakeProfitConfig):
-        super().__init__(position_id, config)
+    ConfigModel = TakeProfitConfig
+
+    def __init__(self, context: StrategyContext, config: TakeProfitConfig):
+        super().__init__(context, config)
+        self.config: TakeProfitConfig = config
         self.triggered = False
-    
-    def update(self, current_price: float, position: 'Position') -> Optional[Signal]:
+
+    def on_tick(self, current_price: Decimal) -> Optional[Signal]:
         if self.triggered:
             return None
+            
+        profit_percent = (current_price - self.config.entry_price) / self.config.entry_price
         
-        config: TakeProfitConfig = self.config
-        profit_percent = (current_price - position.entry_price) / position.entry_price
-        
-        if profit_percent >= config.target_percent:
+        if profit_percent >= self.config.target_percent:
             self.triggered = True
             
-            if config.partial:
-                return self.emit_signal(Signal(
-                    type=SignalType.PARTIAL_CLOSE,
-                    position_id=self.position_id,
-                    reason=f"Take profit at {profit_percent:.2%}",
-                    data={"close_ratio": config.partial_ratio, "price": current_price}
-                ))
-            else:
-                return self.emit_signal(Signal(
-                    type=SignalType.CLOSE,
-                    position_id=self.position_id,
-                    reason=f"Take profit at {profit_percent:.2%}",
-                    data={"price": current_price}
-                ))
-        
+            signal_type = SignalType.PARTIAL_CLOSE if self.config.partial else SignalType.CLOSE_POSITION
+            data = {"price": current_price}
+            if self.config.partial:
+                data["close_ratio"] = self.config.partial_ratio
+                
+            return self.emit_signal(Signal(
+                type=signal_type,
+                strategy_id=self.context.strategy_id,
+                ticker=self.context.ticker,
+                reason=f"Take profit at {profit_percent:.2%}",
+                data=data
+            ))
+            
         return None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "strategy_type": "take_profit",
-            "position_id": self.position_id,
-            "config": self.config.model_dump(),
-            "state": {"triggered": self.triggered}
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'TakeProfitStrategy':
-        config = TakeProfitConfig(**data["config"])
-        strategy = cls(data["position_id"], config)
-        strategy.triggered = data.get("state", {}).get("triggered", False)
-        return strategy
 
+    def get_state(self) -> Dict[str, Any]:
+        return {"triggered": self.triggered}
+
+    def restore_state(self, state: Dict[str, Any]):
+        self.triggered = state.get("triggered", False)
 
 class StopLossConfig(StrategyConfig):
     strategy_type: str = "stop_loss"
-    stop_percent: float  # 손절 퍼센트
+    entry_price: Decimal
+    stop_percent: Decimal
 
+    class Config:
+        arbitrary_types_allowed = True
 
 class StopLossStrategy(StrategyBase):
-    """손절 전략"""
-    
-    def __init__(self, position_id: str, config: StopLossConfig):
-        super().__init__(position_id, config)
-        self.stop_price: Optional[float] = None
-    
-    def update(self, current_price: float, position: 'Position') -> Optional[Signal]:
-        config: StopLossConfig = self.config
-        
+    ConfigModel = StopLossConfig
+
+    def __init__(self, context: StrategyContext, config: StopLossConfig):
+        super().__init__(context, config)
+        self.config: StopLossConfig = config
+        self.stop_price: Optional[Decimal] = None
+
+    def on_tick(self, current_price: Decimal) -> Optional[Signal]:
         if self.stop_price is None:
-            self.stop_price = position.entry_price * (1 - config.stop_percent)
-        
+            self.stop_price = self.config.entry_price * (Decimal("1") - self.config.stop_percent)
+            
         if current_price <= self.stop_price:
             return self.emit_signal(Signal(
-                type=SignalType.CLOSE,
-                position_id=self.position_id,
+                type=SignalType.CLOSE_POSITION,
+                strategy_id=self.context.strategy_id,
+                ticker=self.context.ticker,
                 reason=f"Stop loss triggered at {current_price}",
                 data={"stop_price": self.stop_price}
             ))
-        
         return None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "strategy_type": "stop_loss",
-            "position_id": self.position_id,
-            "config": self.config.model_dump(),
-            "state": {"stop_price": self.stop_price}
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'StopLossStrategy':
-        config = StopLossConfig(**data["config"])
-        strategy = cls(data["position_id"], config)
-        strategy.stop_price = data.get("state", {}).get("stop_price")
-        return strategy
+
+    def get_state(self) -> Dict[str, Any]:
+        return {"stop_price": str(self.stop_price) if self.stop_price else None}
+
+    def restore_state(self, state: Dict[str, Any]):
+        self.stop_price = Decimal(state["stop_price"]) if state.get("stop_price") else None

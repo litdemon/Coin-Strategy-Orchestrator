@@ -11,7 +11,7 @@ class PositionBase(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     ticker: str
     entry_price: float
-    volume: float
+    volume: float # = budget
     config: Optional[Any] = None
     entry_time: float = Field(default_factory=time.time)
     

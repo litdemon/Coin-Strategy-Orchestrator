@@ -22,7 +22,7 @@ class TestManagerCommand(unittest.TestCase):
         
         # Mock dependencies
         self.manager.dashboard = MagicMock()
-        self.manager.account = MagicMock()
+        self.manager.account_manager = MagicMock()
         self.manager.messaging = MagicMock()
         self.manager.price_ob = MagicMock()
         self.manager.position_manager = MagicMock() # Mock position manager
@@ -33,14 +33,14 @@ class TestManagerCommand(unittest.TestCase):
     def test_account_command(self):
         # Setup
         # Return Decimal to reproduce the issue
-        self.manager.account.get_balances.return_value = [{"currency": "BTC", "balance": Decimal("1.0")}]
+        self.manager.account_manager.get_balances.return_value = [{"currency": "BTC", "balance": Decimal("1.0")}]
         data = {"action": "account"}
         
         # Execute (use a mock topic with UUID)
         self.manager.process_command("trading/command/TEST-UUID", data)
         
         # Verify
-        self.manager.account.get_balances.assert_called_once()
+        self.manager.account_manager.get_balances.assert_called_once()
         # Verify it was converted to float
         self.manager.messaging.publish.assert_called_with(
             "trading/response/TEST-UUID/account", 

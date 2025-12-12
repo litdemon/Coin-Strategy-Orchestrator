@@ -1,63 +1,50 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from pydantic import BaseModel, Field
-from enum import Enum
-import uuid
-import time
-import json
-
-if TYPE_CHECKING:
-    from models.position import PositionBase
-
-
-class SignalType(Enum):
-    CLOSE = "close"
-    PARTIAL_CLOSE = "partial_close"
-    UPDATE_STOP = "update_stop"
-
-
-class Signal(BaseModel):
-    """Strategy에서 발생하는 신호"""
-    type: SignalType
-    position_id: str
-    reason: str
-    data: Optional[Dict[str, Any]] = None
-    timestamp: float = Field(default_factory=time.time)
-
-
-class StrategyConfig(BaseModel):
-    """Strategy 설정을 저장하기 위한 베이스 클래스"""
-    strategy_type: str
-    
-    class Config:
-        extra = "allow"  # 추가 필드 허용
-
+from typing import Dict, Any, Optional
+from decimal import Decimal
+from strategy.models import StrategyContext, StrategyConfig, Signal
 
 class StrategyBase(ABC):
-    """Strategy 베이스 클래스"""
+    """Abstract Base Class for all trading strategies."""
     
-    def __init__(self, position_id: str, config: StrategyConfig):
-        self.position_id = position_id
+    def __init__(self, context: StrategyContext, config: StrategyConfig):
+        self.context = context
         self.config = config
-        self.signals: List[Signal] = []
-    
+        self.signals: list[Signal] = []
+
     @abstractmethod
-    def update(self, current_price: float, position: 'Position') -> Optional[Signal]:
-        """가격 업데이트 시 호출, Signal 반환"""
+    def on_tick(self, current_price: Decimal) -> Optional[Signal]:
+        """
+        Called when price updates.
+        Should return a Signal if an action is required, or None.
+        """
         pass
-    
+
     @abstractmethod
-    def to_dict(self) -> Dict[str, Any]:
-        """Strategy를 dict로 직렬화 (DB 저장용)"""
+    def get_state(self) -> Dict[str, Any]:
+        """
+        Return the current state of the strategy as a dictionary.
+        This will be saved to the database.
+        """
         pass
-    
-    @classmethod
+
     @abstractmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'StrategyBase':
-        """dict에서 Strategy 복원"""
+    def restore_state(self, state: Dict[str, Any]):
+        """
+        Restore the strategy state from a dictionary.
+        """
         pass
-    
-    def emit_signal(self, signal: Signal):
-        """신호 발생"""
+
+    def on_schedule(self):
+        """
+        Called when the execution interval is reached.
+        Strategies can implement this for time-based logic.
+        """
+        pass
+
+    def emit_signal(self, signal: Signal) -> Signal:
+        """Helper to emit a signal."""
+        # Enforce strategy_id and ticker consistency
+        signal.strategy_id = self.context.strategy_id
+        signal.ticker = self.context.ticker
         self.signals.append(signal)
         return signal

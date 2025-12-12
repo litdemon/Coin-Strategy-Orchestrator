@@ -61,7 +61,7 @@ class PositionWidget:
         volume_krw = self.volume * self.entry_price
         pid_short = str(self.id)[:4]
 
-        return f"   └── ID:{pid_short}.. | {strategy_str} | PnL: {profit_rate_str} | Vol: {volume_krw:,.0f}"
+        return f"   └── Rot: {strategy_str} | PnL: {profit_rate_str} | Vol: {volume_krw:,.0f}"
 
 
 class TickerWidget:

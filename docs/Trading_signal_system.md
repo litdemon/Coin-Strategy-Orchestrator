@@ -74,7 +74,7 @@ TakeProfitStrategy
 
 # 7 거래소 API 연동
 
-① AccountManager를 통해 거래 실행을 기본으로 한다.
+① Account를 통해 거래 실행을 기본으로 한다.
 ② 모든 주문 요청은 로깅해야 한다.
 ③ 거래 실패 시 Backoff-Retry를 수행해야 한다.
 

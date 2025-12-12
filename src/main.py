@@ -32,6 +32,7 @@ from src.dashboard import Dashboard
 from src.position_manager import Position, PositionManager
 from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
+from strategy.manager import StrategyManager
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,10 @@ class Manager(WebsocketObserver):
         else:
             self.dashboard.log("Messaging Connection Failed")
 
+        # Initialize Strategy Manager
+        self.strategy_manager = StrategyManager(db_path=DB_PATH, account_manager=self.account_manager)
+
+        # Initialize Position Manager
         self.position_manager = PositionManager(db_path=DB_PATH)
         for balance in balances:
             ticker = Ticker(balance.get("currency"))
@@ -89,17 +94,26 @@ class Manager(WebsocketObserver):
                 continue
 
             # position이 없으면 default position 생성   
-            if self.position_manager.get_positions(ticker.ticker, only_active=True):
-                continue
+            if not self.position_manager.get_positions(ticker.ticker, only_active=True):
+                current_price = pyupbit.get_current_price(ticker.ticker)
+                # 총 balance의 25%를 position으로 사용
+                balance = Decimal(balance.get("balance")) * Decimal(0.25)
+                pos = self.position_manager.create_position(
+                                            ticker=ticker.ticker, 
+                                            entry_price=current_price, 
+                                            volume=balance)
+                self.strategy_manager.create_strategy(
+                    type_name='tailingstop',
+                    ticker=ticker.ticker,
+                    budget=pos.volume,
+                    config={
+                        "trailing_stop": 0.05,
+                        "take_profit": 0.1,
+                        "stop_loss": 0.05
+                    },
+                    position_id = pos.id
+                )
             
-            current_price = pyupbit.get_current_price(ticker.ticker)
-            balance = Decimal(balance.get("balance")) * Decimal(0.25)
-            pos = self.position_manager.create_position(
-                                        ticker=ticker.ticker, 
-                                        entry_price=current_price, 
-                                        volume=balance)
-            # position에 strategy 추가
-            # pos.add_strategy(TrailingStopPolicy(0.05))
             
 
         # Log loaded positions
@@ -173,15 +187,22 @@ class Manager(WebsocketObserver):
         if isinstance(cls, UpbitWebSocket):
 
             if message["type"] == "ticker":
-                self.price_ob.update(message['code'], message['trade_price'])
-                if self.price_ob.is_updated(message['code']):
+                market = message['code']
+                price = message['trade_price']
+                self.price_ob.update(market, price)
+                if self.price_ob.is_updated(market):
                     self.on_ticker(message)
+                    
+
             elif message["type"] == "orderbook":
                 self.on_orderbook(message)
             elif message["type"] == "trade":
-                self.price_ob.update(message['code'], message['trade_price'])
-                if self.price_ob.is_updated(message['code']):
+                market = message['code']
+                price = message['trade_price']
+                self.price_ob.update(market, price)
+                if self.price_ob.is_updated(market):
                     self.on_trade(message)
+                    
             else:
                 raise Exception(f"Unknown message type: {message['type']} from {cls}")
         elif isinstance(cls, UpbitWebSocketPrivate) or is_virtual_manager:
@@ -312,6 +333,8 @@ class Manager(WebsocketObserver):
         
         # Update Dashboard Ticker Info
         self.dashboard.update_ticker(message=message)
+        if self.strategy_manager:
+            self.strategy_manager.on_ticker(ticker, current_price)
 
     def on_orderbook(self, message: dict):
         tiker = Ticker(message.get('code', ''))
