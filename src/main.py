@@ -3,7 +3,12 @@ import time
 import logging
 import pyupbit
 import sys
+import json
 from decimal import Decimal
+
+# Messaging
+from messaging.factory import MessagingFactory
+from messaging.interface import MessagingClient
 
 # Add project root to sys.path if not present
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,6 +29,7 @@ from models.orderInfo import OrderInfo
 from models.my_asset import MyAsset
 from strategy.base import SignalType, Signal
 from tools.ticker import Ticker
+from tools.converter import Decimal2float
 from tools.counter import Counter
 from account.account import Account
 from queue import Queue
@@ -61,6 +67,21 @@ class Manager(WebsocketObserver):
         self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
         self.price_ob = CurrentPrice()
         
+        # Initialize Messaging System
+        mqtt_config = {
+            "broker_type": "mqtt",
+            "mqtt": {
+                "host": "mqtt.toybox7.net",
+                "port": 1883,
+                "client_id": f"strategy_manager_{int(time.time())}"
+            }
+        }
+        self.messaging = MessagingFactory.create_client(mqtt_config)
+        if self.messaging.connect():
+            self.dashboard.log("Messaging Connected")
+            self.messaging.subscribe("trading/command/#", self.on_mqtt_message)
+        else:
+            self.dashboard.log("Messaging Connection Failed")
 
         self.position_manager = PositionManager(db_path=DB_PATH)
         for balance in balances:
@@ -108,6 +129,8 @@ class Manager(WebsocketObserver):
     def stop(self):
         self.upbit_websocket.stop()
         self.upbit_asset.stop()
+        if self.messaging:
+            self.messaging.disconnect()
         self.dashboard.stop()
 
     # -- WebSocket Events -------------------------
@@ -116,6 +139,21 @@ class Manager(WebsocketObserver):
 
     def on_ws_closed(self, cls):
         self.dashboard.log("WebSocket Closed")
+
+    def on_mqtt_message(self, topic: str, payload: str):
+        """Callback for MQTT messages."""
+        try:
+            data = json.loads(payload)
+            self.task_queue.put({
+                "cls": self.messaging, 
+                "message": {
+                    "type": "command", 
+                    "topic": topic, 
+                    "data": data
+                }
+            })
+        except json.JSONDecodeError:
+            self.dashboard.log(f"Invalid JSON from {topic}")
 
     def on_ws_message(self, cls, message: dict):
         self.task_queue.put({"cls": cls, "message": message})   
@@ -156,8 +194,80 @@ class Manager(WebsocketObserver):
                     pass
                 else:
                     raise Exception(f"Unknown message type: {message['type']} from {cls}")
+        elif isinstance(cls, MessagingClient):
+            if message["type"] == "command":
+                self.process_command(message["topic"], message["data"])
+            else:
+                self.dashboard.log(f"Unknown msg type from Messaging: {message['type']}")
+
         else:
             raise Exception(f"Unknown class: {cls}")
+
+    def process_command(self, topic: str, data: dict):
+        """Process commands from Messaging System."""
+        try:
+            topic = topic.split("/")
+            uuid = topic[2]
+            action = data.get("action")
+            self.dashboard.log(f"Command Received: {action}")
+            
+            if action == "status":
+                # Reply with status
+                status = {
+                    "running": True,
+                    "positions": len(self.position_manager.positions),
+                    "timestamp": time.time()
+                }
+                self.messaging.publish(f"trading/response/{uuid}/status", status)
+
+            elif action == "account":
+                # Reply with account balances
+                balances = self.account.get_balances()
+                # Convert Decimals to serializable format
+                serializable_balances = self.Decimal2float(balances)
+                self.messaging.publish(f"trading/response/{uuid}/account", serializable_balances)
+                self.dashboard.log(f"Account: {serializable_balances}")
+                
+            elif action == "buy":
+                # Implement Buy Logic or delegate
+                ticker = data.get("ticker")
+                volume = data.get("volume")
+                price = data.get("price")
+                won = data.get("won")
+                
+                if price is None:
+                     price = self.price_ob.get(ticker)
+                     self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
+
+                if won and price:
+                    volume = Decimal(str(won)) / Decimal(str(price))
+                
+                self.dashboard.log(f"CMD BUY: {ticker} {volume} @ {price}")
+                # TODO: Trigger buy via account/position_manager
+                
+            elif action == "sell":
+                # Implement Sell Logic or delegate
+                ticker = data.get("ticker")
+                volume = data.get("volume")
+                price = data.get("price")
+                won = data.get("won")
+                
+                if price is None:
+                     price = self.price_ob.get(ticker)
+                     self.dashboard.log(f"Sell Price not specified. Using Current Price: {price}")
+                     
+                if won and price:
+                    volume = Decimal(str(won)) / Decimal(str(price))
+                
+                self.dashboard.log(f"CMD SELL: {ticker} {volume} @ {price}")
+                 # TODO: Trigger sell via account/position_manager
+                 
+            else:
+                self.dashboard.log(f"Unknown Action: {action}")
+                
+        except Exception as e:
+            logger.error(f"Error processing command: {e}")
+            self.dashboard.log(f"CMD Error: {e}")
         
     def on_my_order(self, cls, message: dict):
         ticker = message['code']
