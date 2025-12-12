@@ -1,260 +1,205 @@
+import sqlite3
 from decimal import Decimal
-import threading
-import uuid
+import pyupbit
 import datetime
-import logging
+from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Callable
 
-# Project imports
-from account.dtos import AssetDTO, OrderDTO
-from account.repositories import AssetRepository, OrderRepository
-from account.exceptions import InsufficientBalanceException, OrderNotFoundException
+# New architecture imports
+from account.dbupbit import DBUpbit
+from account.dtos import OrderDTO
+from account.exceptions import InsufficientBalanceException
+from models.orderInfo import OrderInfo # Keep for compatibility if needed, or replace usages. 
+# But AccountBase signatures use OrderInfo. I should probably update AccountBase or ignore type hint mismatch for now.
+# Or better, alias OrderDTO as OrderInfo if fields match, or change AccountBase.
+
 from tools.ticker import Ticker
-from models.my_asset import MyAsset, AssetItem
 
-logger = logging.getLogger(__name__)
+# Maintain DB_PATH global for compatibility/patching
+DB_PATH = "account.db"
 
-class AccountManager:
-    def __init__(self, db_path: str = "account.db", callback: Callable[[Any, dict], None] = None):
-        self.db_path = db_path
-        self.callback = callback or (lambda *args, **kwargs: None)
-        
-        # Repositories
-        self.asset_repo = AssetRepository(db_path)
-        self.order_repo = OrderRepository(db_path)
-        
-        # Lock for thread safety
-        self.lock = threading.Lock()
-        
-        # Initialize DB tables
-        self.asset_repo.init_db()
-        self.order_repo.init_db()
+class AccountBase(ABC):
+    def __init__(self):
+        pass
+    
+    @abstractmethod
+    def get_balance(self, ticker: str) -> Decimal:
+        pass
+    
+    @abstractmethod
+    def get_balances(self) -> List[dict]:
+        pass
+
+    @abstractmethod
+    def buy_limit_order(self, ticker: str, price: float, volume: float) -> Any:
+        pass
+    
+    @abstractmethod
+    def buy_market_order(self, ticker: str, volume: float) -> Any:
+        pass
+    
+    @abstractmethod
+    def sell_market_order(self, ticker: str, volume: float) -> Any:
+        pass
+    
+    @abstractmethod
+    def get_order(self, ticker: str, state: str = "wait") -> List[Any]:
+        pass
+    
+    @abstractmethod
+    def cancel_order(self, uuid: str) -> Any:
+        pass
+
+    def on_order_complete(self, order: Any):
+        pass
+    
+    def check_order(self, market: str, orderbook_units: List[dict]) -> Any:
+        pass    
+    
+    def get_orders(self) -> List[dict]:
+        pass
+
+class AccountUpbitManager(AccountBase):
+
+    def __init__(self, access_key, secret_key):
+        self.upbit = pyupbit.Upbit(access_key, secret_key)
 
     def get_balance(self, ticker: str) -> Decimal:
-        """Get balance for a specific ticker (e.g. KRW-BTC -> BTC balance)."""
-        ticker_obj = Ticker(ticker)
-        asset = self.asset_repo.get(ticker_obj.currency)
-        return asset.balance if asset else Decimal("0")
-
+        return self.upbit.get_balance(ticker)
+    
     def get_balances(self) -> List[dict]:
-        """Get all balances as list of dicts (compatible with existing API)."""
-        assets = self.asset_repo.get_all()
-        return [asset.model_dump() for asset in assets]
+        return self.upbit.get_balances()
 
-    def add_balance(self, ticker: str, amount: Any, avg_buy_price: Decimal = Decimal("0")) -> dict:
-        """Add balance (deposit or buy result). Updates avg_buy_price."""
-        ticker_obj = Ticker(ticker)
-        
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-        
-        if not isinstance(avg_buy_price, Decimal):
-            avg_buy_price = Decimal(str(avg_buy_price))
-            
-        currency = ticker_obj.currency
-        
-        with self.lock:
-            asset = self.asset_repo.get(currency)
-            
-            if asset:
-                # Weighted Average Calculation
-                # New Avg = (Old Bal * Old Avg + New Amt * New Price) / (Old Bal + New Amt)
-                total_value = (asset.balance * asset.avg_buy_price) + (amount * avg_buy_price)
-                new_balance = asset.balance + amount
-                
-                if new_balance > 0:
-                    new_avg_buy_price = total_value / new_balance
-                else:
-                    new_avg_buy_price = Decimal("0")
-                
-                new_asset = asset.model_copy(update={
-                    "balance": new_balance,
-                    "avg_buy_price": new_avg_buy_price
-                })
-            else:
-                new_asset = AssetDTO(
-                    currency=currency,
-                    balance=amount,
-                    locked=Decimal("0"),
-                    avg_buy_price=avg_buy_price,
-                    avg_buy_price_modified=False,
-                    unit_currency=ticker_obj.unit_currency
-                )
-            
-            self.asset_repo.save(new_asset)
-            
-            # Create update message
-            item = AssetItem(
-                currency=currency,
-                balance=float(new_asset.balance), # AssetItem might expect float
-                locked=float(new_asset.locked)
-            )
-            my_asset_msg = MyAsset(assets=[item])
-            msg_dict = my_asset_msg.model_dump()
-            
-            # Invoke callback
-            self.callback(self, msg_dict)
-            
-            return msg_dict
+    def get_orders(self) -> List[dict]:
+        return self.upbit.get_order()
+    
+    def add_balance(self, ticker: str, amount: Any, avg_buy_price: Decimal = Decimal(0)):
+        return Decimal(0)
+    
+    def buy_limit_order(self, ticker: str, price: float, volume: float) -> Any:
+        return self.upbit.buy_limit_order(ticker, price, volume)
+    
+    def buy_market_order(self, ticker: str, volume: float) -> Any:
+        return self.upbit.buy_market_order(ticker, volume)
+    
+    def sell_market_order(self, ticker: str, volume: float) -> Any:
+        return self.upbit.sell_market_order(ticker, volume)
+    
+    def get_order(self, ticker: str, state: str = "wait") -> List[Any]:
+        return self.upbit.get_order(ticker, state)
+    
+    def cancel_order(self, uuid: str) -> Any:
+        return self.upbit.cancel_order(uuid)
+    
+    def on_order_complete(self, order: Any):
+        pass
+    
+    def check_order(self, market: str, orderbook_units: List[dict]) -> Any:
+        pass    
 
-    def sub_balance(self, ticker: str, amount: Any) -> dict:
-        """Subtract balance (withdraw or sell start)."""
-        ticker_obj = Ticker(ticker)
-        
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-            
-        currency = ticker_obj.currency
-        
-        with self.lock:
-            asset = self.asset_repo.get(currency)
-            if not asset:
-                raise InsufficientBalanceException(f"Asset {currency} not found")
-            
-            if asset.balance < amount:
-                raise InsufficientBalanceException(f"Insufficient balance: {asset.balance} < {amount}")
-            
-            new_balance = asset.balance - amount
-            new_asset = asset.model_copy(update={"balance": new_balance})
-            self.asset_repo.save(new_asset)
-            
-            item = AssetItem(
-                currency=currency, 
-                balance=float(new_asset.balance), 
-                locked=float(new_asset.locked)
-            )
-            my_asset_msg = MyAsset(assets=[item])
-            msg_dict = my_asset_msg.model_dump()
-            
-            # Invoke callback
-            self.callback(self, msg_dict)
-            
-            return msg_dict
 
-    def create_order(self, 
-                     market: str, 
-                     side: str, 
-                     ord_type: str, 
-                     price: Decimal, 
-                     volume: Decimal) -> OrderDTO:
+class AccountDBManager(AccountBase):
+    def __init__(self, callback: Callable[[Any, dict], None]):
+        self.manager = DBUpbit(DB_PATH, callback)
+    
+    def get_balance(self, ticker: str) -> Decimal:
+        return self.manager.get_balance(ticker)
+    
+    def get_balances(self) -> List[dict]:
+        return self.manager.get_balances()
+    
+    def get_orders(self) -> List[dict]:
+        # Return all wait orders as dicts
+        orders = self.manager.get_open_orders()
+        return [order.model_dump() for order in orders]
+    
+    def get_current_price(self, ticker: str) -> Decimal:
+        return pyupbit.get_current_price(ticker)
+    
+    def get_ohlcv(self, ticker: str, interval: str = "minute1", count: int = 200) -> List[dict]:
+        return pyupbit.get_ohlcv(ticker, interval, count)
         
-        if not isinstance(volume, Decimal):
-            volume = Decimal(str(volume))
-        if not isinstance(price, Decimal):
-             price = Decimal(str(price)) if price is not None else Decimal("0")
+    def get_orderbook(self, ticker: str) -> List[dict]:
+        return pyupbit.get_orderbook(ticker)
 
-        new_order = OrderDTO(
-            uuid=str(uuid.uuid4()),
-            side=side,
-            ord_type=ord_type,
-            price=price,
-            state="wait",
-            market=market,
-            created_at=datetime.datetime.now(datetime.timezone.utc), # Use UTC
-            volume=volume,
-            remaining_volume=volume,
-            reserved_fee=Decimal("0"),
-            remaining_fee=Decimal("0"),
-            paid_fee=Decimal("0"),
-            locked=volume, # Simplification: locked volume for both bid/ask? 
-                           # Actually for BID (buy), we lock KRW (price * volume). 
-                           # For ASK (sell), we lock Coin (volume).
-                           # The existing code seemingly locks 'volume' for both?
-                           # Let's check existing logic in Account.
-            executed_volume=Decimal("0"),
-            trades_count=0
+    def sell_limit_order(self, ticker: str, price: float, volume: float) -> OrderDTO:
+        return self.manager.create_order(
+            market=ticker,
+            side="ask",
+            ord_type="limit",
+            price=Decimal(str(price)),
+            volume=Decimal(str(volume))
         )
-        
-        # Locking Logic
-        # Existing logic: separate add_locked/sub_locked methods were on Asset but not used in buy_limit_order snippet?
-        # Actually `Account.buy_limit_order` didn't explicitly call `add_locked`.
-        # However, a real system should lock funds.
-        # The user rules say: "Use Managers for orchestration".
-        # I should probably implement valid locking logic here.
-        
-        with self.lock:
-            self.order_repo.save(new_order)
-            
-        return new_order
+    
+    def buy_limit_order(self, ticker: str, price: float, volume: float) -> OrderDTO:
+        return self.manager.create_order(
+            market=ticker,
+            side="bid",
+            ord_type="limit",
+            price=Decimal(str(price)),
+            volume=Decimal(str(volume))
+        )
+    
+    def buy_market_order(self, ticker: str, volume: float) -> OrderDTO:
+        return self.manager.create_order(
+            market=ticker,
+            side="bid",
+            ord_type="market",
+            price=Decimal("0"),
+            volume=Decimal(str(volume)) # Volume is amount of coin or price? Manager expects volume.
+        )
 
-    def get_order(self, uuid: str) -> Optional[OrderDTO]:
-        return self.order_repo.get(uuid)
+    def sell_market_order(self, ticker: str, volume: float) -> OrderDTO:
+        return self.manager.create_order(
+            market=ticker,
+            side="ask",
+            ord_type="market",
+            price=Decimal("0"),
+            volume=Decimal(str(volume))
+        )
+    
+    def get_order(self, ticker: str, state: str = "wait") -> List[OrderDTO]:
+        return self.manager.get_open_orders(ticker)
+    
+    def cancel_order(self, uuid: str) -> OrderDTO:
+        return self.manager.cancel_order(uuid)
 
-    def get_open_orders(self, ticker: str = None) -> List[OrderDTO]:
-        if ticker:
-            return self.order_repo.get_by_market_and_state(ticker, "wait")
-        return self.order_repo.get_by_state("wait")
+    def on_order_complete(self, order: OrderDTO):
+        self.manager.process_order_complete(order)
+    
+    def check_order(self, market: str, orderbook_units: List[dict]) -> Optional[OrderDTO]:
+        return self.manager.check_and_execute_orders(market, orderbook_units)
+    
+    # Expose balance object for backward compatibility if tests access .balance.assets
+    # But new architecture doesn't have Balance class.
+    # verify/test_account.py accesses acc.balance.assets.
+    # I should probably update the test or provide a property.
+    @property
+    def balance(self):
+        # Mocking compatibility object
+        class BalanceCompat:
+            def __init__(self, manager):
+                self.manager = manager
+            @property
+            def assets(self):
+                # Return dict of {currency: AssetDTO}
+                # But AssetDTO is not mutable like old Asset.
+                # Tests might assume mutability or direct access.
+                # This is tricky. I'll update the test instead.
+                all_assets = self.manager.asset_repo.get_all()
+                return {asset.currency: asset for asset in all_assets}
+            
+            def add_balance(self, ticker, amount, avg_buy_price=0):
+                 return self.manager.add_balance(ticker, amount, avg_buy_price)
 
-    def cancel_order(self, uuid: str) -> Optional[OrderDTO]:
-        with self.lock:
-            order = self.order_repo.get(uuid)
-            if order and order.state == "wait":
-                cancelled_order = order.model_copy(update={"state": "cancel"})
-                self.order_repo.save(cancelled_order)
-                return cancelled_order
-            return order
+        return BalanceCompat(self.manager)
+    
+    @property
+    def orders(self):
+        # account.orders was a dict {uuid: OrderDB}.
+        # Tests access acc.orders[uuid].
+        # I should provide a property that builds this dict on fly.
+        all_orders = self.manager.get_open_orders()
+        return {order.uuid: order for order in all_orders}
 
-    def process_order_complete(self, order: OrderDTO):
-        """Handle order completion (balance updates)."""
-        with self.lock:
-            completed_order = order.model_copy(update={"state": "done"})
-            self.order_repo.save(completed_order)
-            
-            # Logic from old Account.on_order_complete
-            krw_volume = completed_order.volume * (completed_order.price or 0)
-            fee = krw_volume * Decimal("0.0005") # 0.05%
-            
-            if completed_order.side == "bid":
-                # Bought Coin
-                # 1. Add Coin
-                self.add_balance(completed_order.market, completed_order.volume, completed_order.price)
-                # 2. Sub KRW
-                # Note: This logic assumes we haven't already deducted/locked KRW.
-                # If we locked it, we should unlock and deduct.
-                # Existing Account.py didn't seem to have valid locking logic in `on_order_complete` either?
-                # It just calls `sub_balance`.
-                self.sub_balance("KRW", krw_volume + fee)
-            else:
-                # Sold Coin
-                # 1. Sub Coin
-                self.sub_balance(completed_order.market, completed_order.volume)
-                # 2. Add KRW
-                self.add_balance("KRW", krw_volume - fee)
 
-    def check_and_execute_orders(self, market: str, orderbook_units: List[dict]) -> Optional[OrderDTO]:
-        if not orderbook_units:
-            return None
-        
-        # Taking top of orderbook
-        unit = orderbook_units[0]
-        ask_price = Decimal(str(unit["ask_price"]))
-        bid_price = Decimal(str(unit["bid_price"]))
-        
-        # We need to check all wait orders for this market
-        open_orders = self.get_open_orders(market)
-        
-        for order in open_orders:
-            executed = False
-            
-            if order.ord_type == "limit":
-                if order.side == "bid":
-                    # Buy limit: if market ask <= limit price
-                    if order.price >= ask_price:
-                        executed = True
-                else: 
-                    # Sell limit: if market bid >= limit price
-                    if order.price <= bid_price:
-                        executed = True
-            
-            elif order.ord_type == "market":
-                # Market order always executes at current price
-                # Update price to execution price
-                execution_price = ask_price if order.side == "bid" else bid_price
-                order = order.model_copy(update={"price": execution_price, "executed_volume": order.volume})
-                executed = True
-            
-            if executed:
-                self.process_order_complete(order)
-                return order # Return first executed for now
-                
-        return None
