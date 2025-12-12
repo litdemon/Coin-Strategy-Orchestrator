@@ -6,33 +6,32 @@ import sys
 import json
 from decimal import Decimal
 
-# Messaging
-from messaging.factory import MessagingFactory
-from messaging.interface import MessagingClient
+
 
 # Add project root to sys.path if not present
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from typing import List, Tuple
+from typing import List, Tuple, Any
 from dotenv import load_dotenv
-from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 
 import pyupbit
-
-# Use Position instead of base Position
-from src.position_manager import Position, PositionManager
-from src.stratege_manager import StrategyFactory
+from queue import Queue
 
 # Import models
+# Messaging
+from messaging.factory import MessagingFactory
+from messaging.interface import MessagingClient
 from models.trade import Trade
 from models.orderInfo import OrderInfo
 from models.my_asset import MyAsset
-from strategy.base import SignalType, Signal
 from tools.ticker import Ticker
 from tools.converter import Decimal2float
 from tools.counter import Counter
-from account.account import Account
-from queue import Queue
+from account.manager import AccountDBManager, AccountUpbitManager
+from src.dashboard import Dashboard
+from src.position_manager import Position, PositionManager
+from src.current_price import CurrentPrice
+from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +42,8 @@ UPBIT_SECRET_KEY = os.getenv("UPBIT_SECRET_KEY")
 
 DB_PATH = "account.db"
 
-from src.dashboard import Dashboard
-from src.current_price import CurrentPrice
-from account.account import AccountUpbit, Account
+
+
 
 
 class Manager(WebsocketObserver):
@@ -53,14 +51,14 @@ class Manager(WebsocketObserver):
         self.dashboard = Dashboard() # Initialize Dashboard
 
         if virtual:
-            self.account = Account(callback=self.on_ws_message)
+            self.account_manager = AccountDBManager(callback=self.on_ws_message)
         else:
-            self.account = AccountUpbit(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
+            self.account_manager = AccountUpbitManager(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
         self.task_queue = Queue()
         self.counter = Counter()
 
     def init(self):
-        balances = self.account.get_balances()
+        balances = self.account_manager.get_balances()
         tickers = [ Ticker(asset.get("currency")) for asset in balances if asset.get("currency") != "KRW" ]
 
         self.upbit_websocket = UpbitWebSocket(codes=[ticker.ticker for ticker in tickers], observer=self)
@@ -226,7 +224,7 @@ class Manager(WebsocketObserver):
 
             elif action == "account":
                 # Reply with account balances
-                balances = self.account.get_balances()
+                balances = self.account_manager.get_balances()
                 # Convert Decimals to serializable format
                 serializable_balances = self.Decimal2float(balances)
                 self.messaging.publish(f"trading/response/{uuid}/account", serializable_balances)
@@ -319,7 +317,7 @@ class Manager(WebsocketObserver):
         tiker = Ticker(message.get('code', ''))
         orderbook = message.get('orderbook_units', [])
 
-        self.account.check_order(tiker.ticker, orderbook)
+        self.account_manager.check_order(tiker.ticker, orderbook)
 
     def on_trade(self, message: dict):
         pass
@@ -330,9 +328,8 @@ class Manager(WebsocketObserver):
     def on_asset(self, message: dict):
         pass
 
-    def on_signal(self, position: Position, signals: List[Signal]):
-        for signal in signals:
-            self.dashboard.log(f"SIGNAL {position.ticker}: {signal.type.value} - {signal.reason}")
+    def on_signal(self, position: Position=None, signals: Any=None):
+        pass
 
     def _update_positions_dashboard(self, ticker: str):
         """Update dashboard with current positions for the ticker."""
