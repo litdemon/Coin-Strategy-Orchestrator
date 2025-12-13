@@ -91,6 +91,41 @@ def test_strategy_features():
     restored_buy = manager2.strategies[buy_strategy_id]
     assert restored_buy.last_execution_time > 0
     
+    logger.info("--- Test 4: Direct Strategy Addition ---")
+    from strategy.models import StrategyContext
+    import uuid
+    
+    # Manual Instantiation
+    manual_id = str(uuid.uuid4())
+    manual_context = StrategyContext(
+        strategy_id=manual_id,
+        ticker="KRW-XRP",
+        budget=Decimal("5000")
+    )
+    manual_config = TrailingStopConfig(
+        strategy_type="trailing_stop",
+        entry_price=Decimal("200"),
+        trail_percent=Decimal("0.1")
+    )
+    manual_strategy = TrailingStopStrategy(manual_context, manual_config)
+    
+    manager2.add_strategy(manual_strategy)
+    
+    assert manual_id in manager2.strategies
+    logger.info(f"Direct added strategy {manual_id} verified in memory")
+    
+    # Verify Persistence of manually added strategy
+    del manager2
+    manager3 = StrategyManager(db_path=DB_PATH, account_manager=acc_manager)
+    manager3.register_strategy("trailing_stop", TrailingStopStrategy)
+    manager3.register_strategy("buy_strategy", BuyStrategy)
+    manager3.load_strategies()
+    
+    assert manual_id in manager3.strategies
+    row = manager3.strategies[manual_id]
+    assert row.context.ticker == "KRW-XRP"
+    logger.info("Direct added strategy persistence verified")
+
     logger.info("Verification Passed!")
     clean_dbs()
 

@@ -59,6 +59,30 @@ class StrategyManager:
         logger.info(log_msg)
         return dto.strategy_id
 
+    def add_strategy(self, strategy: StrategyBase):
+        """Add an already instantiated strategy."""
+        # Ensure it's active
+        strategy_id = strategy.context.strategy_id
+        type_name = strategy.config.strategy_type
+        
+        # Verify it uses a known type, or auto-register?
+        # Ideally we should register it if unknown, but for now let's assume valid type.
+        
+        dto = StrategyDTO(
+            strategy_id=strategy_id,
+            type=type_name,
+            ticker=strategy.context.ticker,
+            budget=strategy.context.budget,
+            position_id=strategy.context.position_id,
+            config=strategy.config.model_dump(), # Assuming Pydantic model
+            state=strategy.get_state(),
+            status=StrategyStatus.ACTIVE
+        )
+        
+        self.repo.save(dto)
+        self.strategies[strategy_id] = strategy
+        logger.info(f"Added strategy instance {strategy_id} ({type_name})")
+
     def _instantiate_strategy(self, dto: StrategyDTO):
         """Helper to instantiate and restore a strategy."""
         cls = self.strategy_classes[dto.type]
@@ -214,4 +238,15 @@ class StrategyManager:
             dto.status = StrategyStatus.STOPPED
             dto.updated_at = time.time()
             self.repo.save(dto)
+            self.repo.save(dto)
             logger.info(f"Stopped strategy {strategy_id}")
+
+    def load_strategies_by_position_id(self, position_id: str) -> List[str]:
+        """
+        Check active strategies and return list of strategy types linked to the position_id.
+        """
+        return [
+            s.config.strategy_type 
+            for s in self.strategies.values() 
+            if s.context.position_id == position_id
+        ]

@@ -37,11 +37,27 @@ class StrategyWidget:
         return f"{self.name}"
 
 class PositionWidget:
-    def __init__(self, pid: str, strategies: List[Dict[str, str]], entry_price: float, volume: float):
+    def __init__(self, pid: str, strategies: List[Any], entry_price: float, volume: float):
         self.id = pid
-        self.strategies = [StrategyWidget(s.get('name', 'Unknown'), s.get('state', '')) for s in strategies]
+        # Handle both list of strings and list of dicts
+        self.strategies = []
+        for s in strategies:
+            if isinstance(s, str):
+                self.strategies.append(StrategyWidget(s, ""))
+            elif isinstance(s, dict):
+                self.strategies.append(StrategyWidget(s.get('name', 'Unknown'), s.get('state', '')))
+        
         self.entry_price = entry_price
         self.volume = volume
+
+    def update_strategy_state(self, strategy_name: str, state: str):
+        for s in self.strategies:
+            if s.name == strategy_name:
+                s.state = state
+                return
+        # If not found, maybe add it? For now, ignore or add.
+        # Let's add it if not found, to imply "new strategy attached"
+        self.strategies.append(StrategyWidget(strategy_name, state))
     
     def render(self, current_price: float) -> str:
         # Strategy String
@@ -109,9 +125,13 @@ class TickerWidget:
             self.amount = float(balance_info.get('amount', 0))
             self.avg_buy_price = float(balance_info.get('avg_buy_price', 0))
             # Upbit sometimes returns avg_buy_price as string
-        else:
-            self.amount = 0.0
-            self.avg_buy_price = 0.0
+
+
+    def update_strategy(self, pid: str, strategy_name: str, state: str):
+        for pos in self.positions:
+            if pos.id == pid:
+                pos.update_strategy_state(strategy_name, state)
+                return
 
     def render(self) -> List[str]:
         output = []
@@ -207,6 +227,16 @@ class Dashboard:
         })
         logger.info(message)
 
+    def update_strategy(self, ticker: str, position_id: str, strategy: str, state: str):
+        """Update the state of a specific strategy on a position."""
+        self.queue.put({
+            'type': 'strategy_update',
+            'ticker': ticker,
+            'pid': position_id,
+            'strategy': strategy,
+            'state': state
+        })
+
 
     def on_ticker(self, message: dict):
         ticker = message.get('ticker', '')
@@ -233,6 +263,16 @@ class Dashboard:
             if ticker not in self.widgets:
                 return
             self.widgets[ticker].update_positions(item['data'])
+
+    def on_strategy_update(self, item: dict):
+        ticker = item.get('ticker', '')
+        with self.lock:
+            if ticker in self.widgets:
+                self.widgets[ticker].update_strategy(
+                    item.get('pid'),
+                    item.get('strategy'),
+                    item.get('state')
+                )
 
 
     def _run_loop(self):
@@ -263,6 +303,8 @@ class Dashboard:
                         elif item['type'] == 'log':
                             self.on_log(item)
                             message_count['log'] += 1
+                        elif item['type'] == 'strategy_update':
+                            self.on_strategy_update(item)
                         else:
                             logger.error(f"Unknown queue item type: {item['type']}")
 

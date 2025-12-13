@@ -102,19 +102,8 @@ class Manager(WebsocketObserver):
                                             ticker=ticker.ticker, 
                                             entry_price=current_price, 
                                             volume=balance)
-                self.strategy_manager.create_strategy(
-                    type_name='tailingstop',
-                    ticker=ticker.ticker,
-                    budget=pos.volume,
-                    config={
-                        "trailing_stop": 0.05,
-                        "take_profit": 0.1,
-                        "stop_loss": 0.05
-                    },
-                    position_id = pos.id
-                )
-            
-            
+                strategy = TrailingStopStrategy(pos.id, ticker.ticker, current_price, balance)
+                self.strategy_manager.add_strategy(strategy)
 
         # Log loaded positions
         for pos in self.position_manager.positions.values():
@@ -363,7 +352,7 @@ class Manager(WebsocketObserver):
                 'id': p.id,
                 'entry_price': p.entry_price,
                 'volume': p.volume,
-                'strategies': [] # TODO: Add strategies when available in Position model
+                'strategies': self.strategy_manager.load_strategies_by_position_id(p.id) if self.strategy_manager else []
             })
         self.dashboard.update_positions(ticker, pos_data)
 

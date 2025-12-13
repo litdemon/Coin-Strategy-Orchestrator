@@ -1,12 +1,19 @@
 import sqlite3
 import logging
 from pydantic import BaseModel
-from typing import Any, get_type_hints, TypeVar, Type, List
+from typing import Any, get_type_hints, TypeVar, Type, List, Dict
 from decimal import Decimal
+import json
 
 # Decimal을 string으로 저장하도록 어댑터 등록
 sqlite3.register_adapter(Decimal, str)
 sqlite3.register_converter("DECIMAL", lambda v: Decimal(v.decode('utf-8')))
+
+# List/Dict를 JSON string으로 저장하도록 어댑터 등록
+sqlite3.register_adapter(list, json.dumps)
+sqlite3.register_adapter(dict, json.dumps)
+sqlite3.register_converter("LIST", lambda v: json.loads(v.decode('utf-8')))
+sqlite3.register_converter("DICT", lambda v: json.loads(v.decode('utf-8')))
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +37,10 @@ class DBInterface:
             return "INTEGER"
         elif py_type == float:
             return "REAL"
+        elif py_type == list or py_type == List or getattr(py_type, '__origin__', None) == list:
+            return "LIST"
+        elif py_type == dict or py_type == Dict or getattr(py_type, '__origin__', None) == dict:
+            return "DICT"
         else:
             return "TEXT"  # str, bool 및 기타 타입은 TEXT로 저장
 
