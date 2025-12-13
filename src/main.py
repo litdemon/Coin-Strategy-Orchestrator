@@ -132,7 +132,6 @@ class Manager(WebsocketObserver):
         for ticker in loaded_tickers:
             self._update_positions_dashboard(ticker)
         
-        
 
     def run(self):
         self.dashboard.start() # Start Dashboard

@@ -1,4 +1,5 @@
 import sqlite3
+import contextlib
 from typing import List, Optional
 from decimal import Decimal
 from account.dtos import AssetDTO, OrderDTO
@@ -13,15 +14,37 @@ def adapt_decimal(d):
 def convert_decimal(s):
     return Decimal(s.decode('utf-8'))
 
+import datetime
+
 sqlite3.register_adapter(Decimal, adapt_decimal)
 sqlite3.register_converter("DECIMAL", convert_decimal)
+
+def adapt_datetime(val):
+    """Adapt datetime.datetime to ISO 8601 string."""
+    return val.isoformat()
+
+def convert_datetime(val):
+    """Convert ISO 8601 string to datetime.datetime."""
+    return datetime.datetime.fromisoformat(val.decode("utf-8"))
+
+sqlite3.register_adapter(datetime.datetime, adapt_datetime)
+sqlite3.register_converter("TIMESTAMP", convert_datetime)
 
 class RepositoryBase:
     def __init__(self, db_path: str):
         self.db_path = db_path
 
+    @contextlib.contextmanager
     def _get_connection(self):
-        return sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        try:
+            yield conn
+            conn.commit()
+        except:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
 class AssetRepository(RepositoryBase):
     def init_db(self):

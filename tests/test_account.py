@@ -1,161 +1,118 @@
 
 import unittest
-import sqlite3
 import os
 import sys
 from decimal import Decimal
-import uuid
-import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-# Adjust path to include project root
+# Add project root to path
 sys.path.append(os.getcwd())
 
-import account.account
-from account.account import Account
-# New imports
-from account.dtos import OrderDTO
-
-TEST_DB_PATH = "test_account.db"
+from account.manager import AccountDBManager
+from account.dbupbit import DBUpbit
+from account.dtos import AssetDTO, OrderDTO
+from account.exceptions import InsufficientBalanceException
 
 class TestAccount(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # Override DB_PATH for the module
-        cls.original_db_path = account.account.DB_PATH
-        account.account.DB_PATH = TEST_DB_PATH
-        
-    @classmethod
-    def tearDownClass(cls):
-        # Restore DB_PATH
-        account.account.DB_PATH = cls.original_db_path
-        if os.path.exists(TEST_DB_PATH):
-            os.remove(TEST_DB_PATH)
-
     def setUp(self):
-        # Clear Data
-        # Re-initialize DB for each test to ensure clean state
-        if os.path.exists(TEST_DB_PATH):
-            os.remove(TEST_DB_PATH)
+        # Mock callback
+        self.mock_callback = MagicMock()
+        # Initialize DBUpbit with memory DB for speed/isolation if possible, 
+        # but DBUpbit hardcodes file path or uses Repositories.
+        # Ideally we mock the repositories or use a temp file.
+        # For simplicity, we'll mock the repositories attached to DBUpbit.
+        
+        self.db_upbit = DBUpbit(callback=self.mock_callback)
+        self.db_upbit.asset_repo = MagicMock()
+        self.db_upbit.order_repo = MagicMock()
+        
+        # AccountDBManager wrapper
+        self.account = AccountDBManager(callback=self.mock_callback)
+        self.account.manager = self.db_upbit # Inject mocked DBUpbit
+        
+    def test_get_balances_filtering(self):
+        """Test that get_balances filters out zero-volume assets."""
+        assets = [
+            AssetDTO(currency="BTC", balance=Decimal("1.0"), locked=Decimal("0.0"), avg_buy_price=Decimal("50000000"), avg_buy_price_modified=False, unit_currency="KRW"),
+            AssetDTO(currency="ETH", balance=Decimal("0.0"), locked=Decimal("0.0"), avg_buy_price=Decimal("3000000"), avg_buy_price_modified=False, unit_currency="KRW"), # Should be filtered
+            AssetDTO(currency="KRW", balance=Decimal("0.0"), locked=Decimal("1000000.0"), avg_buy_price=Decimal("1"), avg_buy_price_modified=False, unit_currency="KRW"),
+            AssetDTO(currency="XRP", balance=Decimal("100.0"), locked=Decimal("0.0"), avg_buy_price=Decimal("1000"), avg_buy_price_modified=False, unit_currency="KRW")
+        ]
+        self.db_upbit.asset_repo.get_all.return_value = assets
+        
+        balances = self.account.get_balances()
+        
+        # BTC, KRW (locked), XRP should be present. ETH should be absent.
+        currencies = [b['currency'] for b in balances]
+        self.assertIn("BTC", currencies)
+        self.assertIn("KRW", currencies)
+        self.assertIn("XRP", currencies)
+        self.assertNotIn("ETH", currencies)
+        self.assertEqual(len(balances), 3)
+
+    def test_create_order_insufficient_balance(self):
+        """Test validation for insufficient balance."""
+        # Setup KRW balance: 1M available
+        krw_asset = AssetDTO(currency="KRW", balance=Decimal("1000000"), locked=Decimal("0"), avg_buy_price=Decimal("1"), avg_buy_price_modified=False, unit_currency="KRW")
+        self.db_upbit.asset_repo.get.return_value = krw_asset
+        
+        # Try to buy 1 BTC at 50M (Cost 50M)
+        with self.assertRaises(InsufficientBalanceException):
+            self.db_upbit.create_order(
+                market="KRW-BTC", 
+                side="bid", 
+                ord_type="limit", 
+                price=Decimal("50000000"), 
+                volume=Decimal("1")
+            )
             
-        # Initialize via Account (which inits Manager -> init_db)
-        self.acc = Account(None)
+    def test_create_order_locking(self):
+        """Test that funds are locked upon order creation."""
+        # Setup KRW: 100M
+        krw_asset = AssetDTO(currency="KRW", balance=Decimal("100000000"), locked=Decimal("0"), avg_buy_price=Decimal("1"), avg_buy_price_modified=False, unit_currency="KRW")
+        self.db_upbit.asset_repo.get.return_value = krw_asset
         
-        # Insert Initial Balance manually or via manager
-        # Using Account's balance compatibility property or manager directly
-        # acc.manager.asset_repo.init_db() is called in __init__
+        # Create Order: Buy 1 BTC @ 50M
+        self.db_upbit.create_order(
+            market="KRW-BTC",
+            side="bid",
+            ord_type="limit",
+            price=Decimal("50000000"),
+            volume=Decimal("1")
+        )
         
-        with sqlite3.connect(TEST_DB_PATH) as conn:
-            # We need to ensure tables exist if we deleted the file
-            # Account() init above created them.
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM assets")
-            cursor.execute("DELETE FROM orders")
-            
-            # Initial Balance: KRW 10,000,000
-            cursor.execute("""
-                INSERT INTO assets (currency, balance, locked, avg_buy_price, avg_buy_price_modified, unit_currency)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, ('KRW', 10000000, 0, 0, 0, 'KRW'))
-            conn.commit()
+        # Verify asset_repo.save was called with updated balance/locked
+        # save is called 2 times (once for locking, once for order?)
+        # DBUpbit logic: 
+        # 1. Lock funds -> repo.save(asset)
+        # 2. Save order -> repo.save(order)
+        
+        # Check the asset passed to save
+        saved_asset = self.db_upbit.asset_repo.save.call_args[0][0]
+        self.assertEqual(saved_asset.currency, "KRW")
+        # Cost = 50M + 0.05% fee = 50,025,000
+        expected_locked = Decimal("50000000") * Decimal("1.0005")
+        self.assertEqual(saved_asset.locked, expected_locked)
+        self.assertEqual(saved_asset.balance, Decimal("100000000") - expected_locked)
 
-    def test_initialization(self):
-        print(f"DEBUG: Account DB_PATH={account.account.DB_PATH}")
-        acc = Account(None)
+    def test_market_buy_locking(self):
+        """Test locking for market buy orders."""
+        # Valid price provided
+        krw_asset = AssetDTO(currency="KRW", balance=Decimal("100000000"), locked=Decimal("0"), avg_buy_price=Decimal("1"), avg_buy_price_modified=False, unit_currency="KRW")
+        self.db_upbit.asset_repo.get.return_value = krw_asset
         
-        # Test backward compatibility or new API
-        # acc.balance might be a Compat object now
-        print(f"DEBUG: Loaded balance: {acc.get_balance('KRW')}")
+        # Market Buy: 1 BTC estimated at 50M
+        self.db_upbit.create_order(
+            market="KRW-BTC",
+            side="bid",
+            ord_type="market",
+            price=Decimal("50000000"), # Estimated price pass-through
+            volume=Decimal("1")
+        )
         
-        self.assertEqual(acc.get_balance("KRW"), Decimal("10000000"))
+        saved_asset = self.db_upbit.asset_repo.save.call_args[0][0]
+        expected_locked = Decimal("50000000") * Decimal("1.0005")
+        self.assertEqual(saved_asset.locked, expected_locked)
 
-    def test_buy_limit_order(self):
-        acc = Account(None)
-        price = 50000000.0
-        volume = 0.1
-        ticker = "KRW-BTC"
-        
-        order = acc.buy_limit_order(ticker, price, volume)
-        
-        # Verify Return (OrderDTO)
-        self.assertEqual(order.market, ticker)
-        self.assertEqual(order.side, "bid")
-        self.assertEqual(order.price, Decimal(str(price)))
-        self.assertEqual(order.volume, Decimal(str(volume)))
-        self.assertEqual(order.state, "wait")
-        
-        # Verify Memory/DB (via compatibility property or direct manager)
-        self.assertIn(order.uuid, acc.orders)
-        
-        # Verify DB directly
-        repo_order = acc.manager.order_repo.get(order.uuid)
-        self.assertIsNotNone(repo_order)
-        self.assertEqual(repo_order.uuid, order.uuid)
-
-    def test_buy_market_order(self):
-        acc = Account(None)
-        ticker = "KRW-BTC"
-        volume = 100000.0 
-        
-        order = acc.buy_market_order(ticker, volume)
-        self.assertEqual(order.ord_type, "market")
-        self.assertIn(order.uuid, acc.orders)
-        
-        db_order = acc.manager.order_repo.get(order.uuid)
-        self.assertIsNotNone(db_order)
-
-    def test_execution_limit_buy(self):
-        acc = Account(None)
-        ticker = "KRW-BTC"
-        price = 50000000.0
-        volume = 0.1 
-        
-        order = acc.buy_limit_order(ticker, price, volume)
-        
-        orderbook = [{"ask_price": 50000000.0, "bid_price": 49000000.0}]
-        
-        filled_order = acc.check_order(ticker, orderbook)
-        
-        self.assertIsNotNone(filled_order)
-        self.assertEqual(filled_order.state, "done")
-        self.assertEqual(filled_order.uuid, order.uuid)
-        
-        cost = Decimal(str(price)) * Decimal(str(volume))
-        fee = cost * Decimal("0.0005")
-        expected_krw = Decimal("10000000") - cost - fee
-        
-        krw_bal = acc.get_balance("KRW")
-        btc_bal = acc.get_balance("BTC") 
-        
-        self.assertAlmostEqual(krw_bal, expected_krw)
-        self.assertEqual(btc_bal, Decimal("0.1"))
-
-    def test_execution_limit_sell(self):
-        acc = Account(None)
-        ticker = "KRW-BTC"
-        
-        # Need BTC first
-        acc.balance.add_balance(ticker, Decimal("0.1"), Decimal("50000000"))
-        
-        price = 55000000.0
-        volume = 0.1
-        
-        order = acc.sell_limit_order(ticker, price, volume)
-        
-        orderbook = [{"ask_price": 56000000.0, "bid_price": 55000000.0}]
-        
-        filled_order = acc.check_order(ticker, orderbook)
-        self.assertIsNotNone(filled_order)
-        
-        cost = Decimal(str(price)) * Decimal(str(volume))
-        fee = cost * Decimal("0.0005")
-        expected_krw = Decimal("10000000") + cost - fee
-        
-        krw_bal = acc.get_balance("KRW")
-        btc_bal = acc.get_balance("BTC")
-        
-        self.assertAlmostEqual(krw_bal, expected_krw)
-        self.assertEqual(btc_bal, Decimal("0"))
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

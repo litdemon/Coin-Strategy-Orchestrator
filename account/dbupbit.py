@@ -420,10 +420,14 @@ class DBUpbit:
                 if order.side == "bid":
                     # Buy limit: if market ask <= limit price
                     if order.price >= ask_price:
+                        # Executed at ask_price (better price)
+                        order = order.model_copy(update={"price": ask_price})
                         executed = True
                 else: 
                     # Sell limit: if market bid >= limit price
                     if order.price <= bid_price:
+                        # Executed at bid_price (better price)
+                        order = order.model_copy(update={"price": bid_price})
                         executed = True
             
             elif order.ord_type == "market":

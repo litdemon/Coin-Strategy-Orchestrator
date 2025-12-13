@@ -1,4 +1,5 @@
 import sqlite3
+import contextlib
 import logging
 from pydantic import BaseModel
 from typing import Any, get_type_hints, TypeVar, Type, List, Dict, Optional
@@ -104,11 +105,13 @@ class DBInterface:
             """
         
         # timeout 10초 설정
-        with sqlite3.connect(db_path, timeout=10.0) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            cursor.execute(archive_query)
-            conn.commit()
+        # timeout 10초 설정
+        with contextlib.closing(sqlite3.connect(db_path, timeout=10.0)) as conn:
+            with conn: # Transaction context
+                cursor = conn.cursor()
+                cursor.execute(query)
+                cursor.execute(archive_query)
+                conn.commit()
             logger.info(f"[{table_name}, {archive_table_name}] 테이블 초기화 완료 (경로: {db_path})")
 
     def save(self, db_path: str = "database.db"):
@@ -130,10 +133,11 @@ class DBInterface:
         query = f"INSERT OR REPLACE INTO {table_name} ({keys}) VALUES ({placeholders})"
         
         
-        with sqlite3.connect(db_path, timeout=10.0) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, data)
-            conn.commit()
+        with contextlib.closing(sqlite3.connect(db_path, timeout=10.0)) as conn:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute(query, data)
+                conn.commit()
             # 보안상 전체 데이터 로깅 제거
             logger.debug(f"데이터 저장 완료: {table_name}")
     
@@ -162,10 +166,11 @@ class DBInterface:
         data_list = [obj.model_dump(exclude={'id'}) for obj in objects]
         
         # 3. 한 번의 트랜잭션으로 모두 실행
-        with sqlite3.connect(db_path, timeout=10.0) as conn:
-            # executemany는 내부적으로 최적화된 루프를 돕니다.
-            conn.executemany(query, data_list)
-            conn.commit()
+        with contextlib.closing(sqlite3.connect(db_path, timeout=10.0)) as conn:
+            with conn:
+                # executemany는 내부적으로 최적화된 루프를 돕니다.
+                conn.executemany(query, data_list)
+                conn.commit()
             logger.info(f"[{len(objects)}]건 대량 저장 완료.")
 
     @classmethod
@@ -177,7 +182,7 @@ class DBInterface:
         query = f"SELECT * FROM {table_name}"
         
         results = []
-        with sqlite3.connect(db_path, timeout=10.0) as conn:
+        with contextlib.closing(sqlite3.connect(db_path, timeout=10.0)) as conn:
             # Row Factory 설정: DB 결과를 딕셔너리처럼 컬럼명으로 접근 가능하게 함
             conn.row_factory = sqlite3.Row 
             cursor = conn.execute(query)
@@ -217,16 +222,17 @@ class DBInterface:
         insert_query = f"INSERT INTO {archive_table_name} ({keys}) VALUES ({placeholders})"
         delete_query = f"DELETE FROM {table_name} WHERE id = :id"
         
-        with sqlite3.connect(db_path, timeout=10.0) as conn:
-            cursor = conn.cursor()
-            try:
-                # 1. 아카이브 테이블에 복사
-                cursor.execute(insert_query, data)
-                # 2. 메인 테이블에서 삭제
-                cursor.execute(delete_query, {'id': data['id']})
-                conn.commit()
-                logger.info(f"데이터 아카이브 완료: ID {data.get('id')}")
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"데이터 아카이브 실패: {e}")
-                raise e
+        with contextlib.closing(sqlite3.connect(db_path, timeout=10.0)) as conn:
+            with conn:
+                cursor = conn.cursor()
+                try:
+                    # 1. 아카이브 테이블에 복사
+                    cursor.execute(insert_query, data)
+                    # 2. 메인 테이블에서 삭제
+                    cursor.execute(delete_query, {'id': data['id']})
+                    conn.commit()
+                    logger.info(f"데이터 아카이브 완료: ID {data.get('id')}")
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"데이터 아카이브 실패: {e}")
+                    raise e
