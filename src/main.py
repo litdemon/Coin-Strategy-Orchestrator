@@ -33,7 +33,9 @@ from src.position_manager import Position, PositionManager
 from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager
-from strategy.trailingstop import TrailingStopStrategy
+from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig
+from strategy.models import StrategyContext
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +45,6 @@ UPBIT_ACCESS_KEY = os.getenv("UPBIT_ACCESS_KEY")
 UPBIT_SECRET_KEY = os.getenv("UPBIT_SECRET_KEY")
 
 DB_PATH = "account.db"
-
-
-
-
 
 class Manager(WebsocketObserver):
     def __init__(self, virtual: bool = False):
@@ -109,7 +107,20 @@ class Manager(WebsocketObserver):
                                             ticker=ticker.ticker, 
                                             entry_price=current_price, 
                                             volume=balance)
-                strategy = TrailingStopStrategy(pos.id, ticker.ticker, current_price, balance)
+                
+                # Create Strategy Context & Config
+                context = StrategyContext(
+                    strategy_id=str(uuid.uuid4()),
+                    ticker=ticker.ticker,
+                    budget=balance, 
+                    position_id=pos.id
+                )
+                config = TrailingStopConfig(
+                    entry_price=current_price,
+                    trail_percent=Decimal("0.02") # Default 2% trailing stop
+                )
+                
+                strategy = TrailingStopStrategy(context=context, config=config)
                 self.strategy_manager.add_strategy(strategy)
 
         # Log loaded positions
@@ -245,7 +256,7 @@ class Manager(WebsocketObserver):
                 # Reply with account balances
                 balances = self.account_manager.get_balances()
                 # Convert Decimals to serializable format
-                serializable_balances = self.Decimal2float(balances)
+                serializable_balances = Decimal2float(balances)
                 self.messaging.publish(f"trading/response/{uuid}/account", serializable_balances)
                 self.dashboard.log(f"Account: {serializable_balances}")
                 
@@ -256,20 +267,30 @@ class Manager(WebsocketObserver):
                 price = data.get("price")
                 won = data.get("won")
                 
-                if price is None:
-                     price = self.price_ob.get(ticker)
+                # Dynamic Subscription: If new ticker, subscribe to orderbook/ticker updates
+                if ticker and ticker not in self.upbit_websocket.codes:
+                    self.dashboard.log(f"Subscribing to new ticker: {ticker}")
+                    self.upbit_websocket.add_subscription([ticker])
+                
+                is_market = False
+                if price is not None and float(price) <= 0:
+                    is_market = True
+                    price = None
+
+                if price is None and not is_market:
+                     price = pyupbit.get_current_price(ticker)
                      self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
 
                 if won and price:
                     volume = Decimal(str(won)) / Decimal(str(price))
                 
-                self.dashboard.log(f"CMD BUY: {ticker} {volume} @ {price}")
+                self.dashboard.log(f"CMD BUY: {ticker} {volume} @ {'Market' if is_market else price}")
                 
                 # Trigger buy via account_manager
-                if price:
-                     self.account_manager.buy_limit_order(ticker, float(price), float(volume))
-                else:
+                if is_market:
                      self.account_manager.buy_market_order(ticker, float(volume))
+                else:
+                     self.account_manager.buy_limit_order(ticker, float(price), float(volume))
                 
             elif action == "sell":
                 # Implement Sell Logic or delegate
@@ -278,20 +299,31 @@ class Manager(WebsocketObserver):
                 price = data.get("price")
                 won = data.get("won")
                 
-                if price is None:
+                is_market = False
+                if price is not None and float(price) <= 0:
+                     is_market = True
+                     price = None
+                
+                if price is None and not is_market:
                      price = self.price_ob.get(ticker)
                      self.dashboard.log(f"Sell Price not specified. Using Current Price: {price}")
                      
                 if won and price:
                     volume = Decimal(str(won)) / Decimal(str(price))
                 
-                self.dashboard.log(f"CMD SELL: {ticker} {volume} @ {price}")
+                # Check for "Sell All" (Volume = -1)
+                if volume is not None and float(volume) == -1:
+                    balance = self.account_manager.get_balance(ticker)
+                    self.dashboard.log(f"Sell All requested. Avail Balance: {balance}")
+                    volume = balance
+
+                self.dashboard.log(f"CMD SELL: {ticker} {volume} @ {'Market' if is_market else price}")
                 
                 # Trigger sell via account_manager
-                if price:
-                    self.account_manager.sell_limit_order(ticker, float(price), float(volume))
-                else:
+                if is_market:
                     self.account_manager.sell_market_order(ticker, float(volume))
+                else:
+                    self.account_manager.sell_limit_order(ticker, float(price), float(volume))
 
             elif action == "cancel":
                 uuid = data.get("uuid")

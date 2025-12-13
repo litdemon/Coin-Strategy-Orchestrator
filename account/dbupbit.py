@@ -39,7 +39,12 @@ class DBUpbit:
     def get_balances(self) -> List[dict]:
         """Get all balances as list of dicts (compatible with existing API)."""
         assets = self.asset_repo.get_all()
-        return [asset.model_dump() for asset in assets]
+        # Filter out assets with 0 total volume (balance + locked)
+        return [
+            asset.model_dump() 
+            for asset in assets 
+            if (asset.balance + asset.locked) > 0
+        ]
 
     def add_balance(self, ticker: str, amount: Any, avg_buy_price: Decimal = Decimal("0")) -> dict:
         """Add balance (deposit or buy result). Updates avg_buy_price."""
@@ -131,6 +136,47 @@ class DBUpbit:
             
             return msg_dict
 
+    def lock_asset(self, ticker_currency: str, amount: Decimal):
+        """Lock asset amount. Raises InsufficientBalanceException if not enough."""
+        with self.lock:
+            asset = self.asset_repo.get(ticker_currency)
+            if not asset or asset.balance < amount:
+                raise InsufficientBalanceException(f"Insufficient funds for {ticker_currency}: {asset.balance if asset else 0} < {amount}")
+            
+            new_balance = asset.balance - amount
+            new_locked = asset.locked + amount
+            new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked})
+            self.asset_repo.save(new_asset)
+            
+            # Emit update
+            item = AssetItem(
+                currency=ticker_currency,
+                balance=float(new_asset.balance),
+                locked=float(new_asset.locked)
+            )
+            self.callback(self, MyAsset(assets=[item]).model_dump())
+
+    def unlock_asset(self, ticker_currency: str, amount: Decimal):
+        """Unlock asset amount (e.g. on cancel)."""
+        with self.lock:
+            asset = self.asset_repo.get(ticker_currency)
+            if not asset:
+                return # Should not happen
+                
+            new_balance = asset.balance + amount
+            new_locked = asset.locked - amount
+            if new_locked < 0: new_locked = Decimal("0")
+            
+            new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked})
+            self.asset_repo.save(new_asset)
+            
+            item = AssetItem(
+                currency=ticker_currency,
+                balance=float(new_asset.balance),
+                locked=float(new_asset.locked)
+            )
+            self.callback(self, MyAsset(assets=[item]).model_dump())
+
     def create_order(self, 
                      market: str, 
                      side: str, 
@@ -141,7 +187,43 @@ class DBUpbit:
         if not isinstance(volume, Decimal):
             volume = Decimal(str(volume))
         if not isinstance(price, Decimal):
-             price = Decimal(str(price)) if price is not None else Decimal("0")
+            price = Decimal(str(price)) if price is not None else Decimal("0")
+
+        # Validation & Locking
+        ticker_obj = Ticker(market)
+        lock_currency = ""
+        lock_amount = Decimal("0")
+        
+        if side == "bid":
+            # Buy -> Lock KRW (unit_currency)
+            # Limit: Price * Volume
+            # Market: Price (if ord_type is price) or Estimate?
+            # Assuming Limit for now based on test cases.
+            lock_currency = ticker_obj.unit_currency
+            if ord_type == "limit":
+                lock_amount = price * volume
+                # Add fee buffer? Upbit usually locks total amount (cost+fee). 
+                # Calculating exact fee:
+                fee_rate = Decimal("0.0005")
+                lock_amount += lock_amount * fee_rate
+            else:
+                 # Market Buy: 
+                 # We now expect 'price' to be populated with estimated price from AccountDBManager
+                 if price > 0:
+                     lock_amount = price * volume
+                     fee_rate = Decimal("0.0005")
+                     lock_amount += lock_amount * fee_rate
+                 else:
+                     # Fallback if no price provided (shouldn't happen with updated AccountDBManager)
+                     logger.warning(f"Market Buy Order for {market} has 0 price. Locking skipped.") 
+        else:
+            # Sell -> Lock Coin (currency)
+            lock_currency = ticker_obj.currency
+            lock_amount = volume
+            
+        # Attempt Lock
+        if lock_amount > 0:
+            self.lock_asset(lock_currency, lock_amount)
 
         new_order = OrderDTO(
             uuid=str(uuid.uuid4()),
@@ -150,27 +232,16 @@ class DBUpbit:
             price=price,
             state="wait",
             market=market,
-            created_at=datetime.datetime.now(datetime.timezone.utc), # Use UTC
+            created_at=datetime.datetime.now(datetime.timezone.utc),
             volume=volume,
             remaining_volume=volume,
-            reserved_fee=Decimal("0"),
+            reserved_fee=Decimal("0"), # TODO: Track fee separately if needed
             remaining_fee=Decimal("0"),
             paid_fee=Decimal("0"),
-            locked=volume, # Simplification: locked volume for both bid/ask? 
-                           # Actually for BID (buy), we lock KRW (price * volume). 
-                           # For ASK (sell), we lock Coin (volume).
-                           # The existing code seemingly locks 'volume' for both?
-                           # Let's check existing logic in Account.
+            locked=lock_amount, 
             executed_volume=Decimal("0"),
             trades_count=0
         )
-        
-        # Locking Logic
-        # Existing logic: separate add_locked/sub_locked methods were on Asset but not used in buy_limit_order snippet?
-        # Actually `Account.buy_limit_order` didn't explicitly call `add_locked`.
-        # However, a real system should lock funds.
-        # The user rules say: "Use Managers for orchestration".
-        # I should probably implement valid locking logic here.
         
         with self.lock:
             self.order_repo.save(new_order)
@@ -205,6 +276,15 @@ class DBUpbit:
             if order and order.state == "wait":
                 cancelled_order = order.model_copy(update={"state": "cancel"})
                 self.order_repo.save(cancelled_order)
+                
+                # Unlock Funds
+                ticker_obj = Ticker(order.market)
+                if order.side == "bid":
+                    # Unlock KRW (use saved locked amount)
+                    self.unlock_asset(ticker_obj.unit_currency, order.locked)
+                else:
+                    # Unlock Coin
+                    self.unlock_asset(ticker_obj.currency, order.locked)
                 
                 # Emit myOrder event
                 msg = {
@@ -241,24 +321,81 @@ class DBUpbit:
             }
             self.callback(self, msg)
             
-            # Logic from old Account.on_order_complete
+            # Logic with Locking
             krw_volume = completed_order.volume * (completed_order.price or 0)
             fee = krw_volume * Decimal("0.0005") # 0.05%
             
             if completed_order.side == "bid":
                 # Bought Coin
-                # 1. Add Coin
+                # 1. Add Coin (No lock involved)
                 self.add_balance(completed_order.market, completed_order.volume, completed_order.price)
+                
                 # 2. Sub KRW
-                # Note: This logic assumes we haven't already deducted/locked KRW.
-                # If we locked it, we should unlock and deduct.
-                # Existing Account.py didn't seem to have valid locking logic in `on_order_complete` either?
-                # It just calls `sub_balance`.
-                self.sub_balance("KRW", krw_volume + fee)
+                # KRW was Locked. We need to Consume Locked KRW.
+                # Total Cost = krw_volume + fee
+                # Locked was = (price * volume) * 1.0005 (approx)
+                
+                # We need to reduce LOCKED by order.locked (release lock)
+                # And reduce BALANCE by Cost (spend)
+                # But wait, 'locked' definition:
+                #    balance = available
+                #    total = balance + locked?
+                # In my lock_asset implementation:
+                #    new_balance = asset.balance - amount (Available reduced)
+                #    new_locked = asset.locked + amount (Locked increased)
+                
+                # So to Spend:
+                #    locked -= order.locked
+                #    balance -> No change (already deducted from available)
+                #    Wait, if executed cost < locked? Refund difference to balance.
+                
+                currency = "KRW"
+                with self.lock:
+                    asset = self.asset_repo.get(currency)
+                    if asset:
+                        # Spend locked
+                        new_locked = asset.locked - completed_order.locked
+                        if new_locked < 0: new_locked = Decimal("0")
+                        
+                        # Refund excess (if any)
+                        # Actual Cost
+                        actual_cost = krw_volume + fee
+                        excess = completed_order.locked - actual_cost
+                        
+                        # Since cost is paid, we don't add back to balance unless excess
+                        # Asset Balance (Available) doesn't change since it was already deducted?
+                        # Yes.
+                        # So new_balance = asset.balance + excess
+                        
+                        new_balance = asset.balance + excess
+                        
+                        new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked})
+                        self.asset_repo.save(new_asset)
+                        
+                        # Emit
+                        item = AssetItem(currency=currency, balance=float(new_asset.balance), locked=float(new_asset.locked))
+                        self.callback(self, MyAsset(assets=[item]).model_dump())
+
             else:
                 # Sold Coin
-                # 1. Sub Coin
-                self.sub_balance(completed_order.market, completed_order.volume)
+                # 1. Sub Coin (Consumed Locked)
+                currency = Ticker(completed_order.market).currency
+                with self.lock:
+                    asset = self.asset_repo.get(currency)
+                    if asset:
+                        new_locked = asset.locked - completed_order.locked
+                        if new_locked < 0: new_locked = Decimal("0")
+                        
+                        # If executed volume < locked? (Partial fill?)
+                        # Assuming full fill for loop.
+                        # If full fill, excess is 0.
+                        
+                        new_asset = asset.model_copy(update={"locked": new_locked})
+                        self.asset_repo.save(new_asset)
+                        
+                        item = AssetItem(currency=currency, balance=float(new_asset.balance), locked=float(new_asset.locked))
+                        self.callback(self, MyAsset(assets=[item]).model_dump())
+                        
                 # 2. Add KRW
                 self.add_balance("KRW", krw_volume - fee)
             
