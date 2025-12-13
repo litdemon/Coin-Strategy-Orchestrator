@@ -100,6 +100,10 @@ def main():
     sell_group.add_argument("-v", "--volume", type=float, help="Volume in asset unit")
     sell_group.add_argument("-w", "--won", type=float, help="Volume in KRW")
 
+    # Cancel
+    cancel_parser = subparsers.add_parser("cancel", help="Cancel Order")
+    cancel_parser.add_argument("uuid", help="Order UUID to cancel")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -110,6 +114,8 @@ def main():
         send_command("buy", ticker=args.ticker, volume=args.volume, won=args.won, price=args.price)
     elif args.command == "sell":
         send_command("sell", ticker=args.ticker, volume=args.volume, won=args.won, price=args.price)
+    elif args.command == "cancel":
+        send_command("cancel", uuid=args.uuid)
 
 if __name__ == "__main__":
     main()

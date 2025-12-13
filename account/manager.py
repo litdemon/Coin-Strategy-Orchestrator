@@ -41,6 +41,10 @@ class AccountBase(ABC):
     @abstractmethod
     def sell_market_order(self, ticker: str, volume: float) -> Any:
         pass
+
+    @abstractmethod
+    def sell_limit_order(self, ticker: str, price: float, volume: float) -> Any:
+        pass
     
     @abstractmethod
     def get_order(self, ticker: str, state: str = "wait") -> List[Any]:
@@ -84,6 +88,9 @@ class AccountUpbitManager(AccountBase):
     
     def sell_market_order(self, ticker: str, volume: float) -> Any:
         return self.upbit.sell_market_order(ticker, volume)
+    
+    def sell_limit_order(self, ticker: str, price: float, volume: float) -> Any:
+        return self.upbit.sell_limit_order(ticker, price, volume)
     
     def get_order(self, ticker: str, state: str = "wait") -> List[Any]:
         return self.upbit.get_order(ticker, state)

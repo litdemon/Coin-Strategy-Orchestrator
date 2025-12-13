@@ -33,6 +33,7 @@ from src.position_manager import Position, PositionManager
 from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager
+from strategy.trailingstop import TrailingStopStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -49,21 +50,27 @@ DB_PATH = "account.db"
 
 class Manager(WebsocketObserver):
     def __init__(self, virtual: bool = False):
-        self.dashboard = Dashboard() # Initialize Dashboard
 
-        if virtual:
-            self.account_manager = AccountDBManager(callback=self.on_ws_message)
-        else:
-            self.account_manager = AccountUpbitManager(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
         self.task_queue = Queue()
         self.counter = Counter()
+        self.virtual = virtual
 
     def init(self):
+
+        self.dashboard = Dashboard() # Initialize Dashboard
+
+        if self.virtual:
+            self.account_manager = AccountDBManager(callback=self.on_ws_message)
+            self.upbit_asset = None
+        else:
+            self.account_manager = AccountUpbitManager(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
+            self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
+
         balances = self.account_manager.get_balances()
         tickers = [ Ticker(asset.get("currency")) for asset in balances if asset.get("currency") != "KRW" ]
 
         self.upbit_websocket = UpbitWebSocket(codes=[ticker.ticker for ticker in tickers], observer=self)
-        self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
+        
         self.price_ob = CurrentPrice()
         
         # Initialize Messaging System
@@ -119,7 +126,8 @@ class Manager(WebsocketObserver):
     def run(self):
         self.dashboard.start() # Start Dashboard
         self.upbit_websocket.start()
-        self.upbit_asset.start()
+        if self.upbit_asset:
+            self.upbit_asset.start()
 
         logger.info("Manager started")
         is_stop = False
@@ -133,7 +141,8 @@ class Manager(WebsocketObserver):
 
     def stop(self):
         self.upbit_websocket.stop()
-        self.upbit_asset.stop()
+        if self.upbit_asset:
+            self.upbit_asset.stop()
         if self.messaging:
             self.messaging.disconnect()
         self.dashboard.stop()
@@ -255,7 +264,12 @@ class Manager(WebsocketObserver):
                     volume = Decimal(str(won)) / Decimal(str(price))
                 
                 self.dashboard.log(f"CMD BUY: {ticker} {volume} @ {price}")
-                # TODO: Trigger buy via account/position_manager
+                
+                # Trigger buy via account_manager
+                if price:
+                     self.account_manager.buy_limit_order(ticker, float(price), float(volume))
+                else:
+                     self.account_manager.buy_market_order(ticker, float(volume))
                 
             elif action == "sell":
                 # Implement Sell Logic or delegate
@@ -272,7 +286,21 @@ class Manager(WebsocketObserver):
                     volume = Decimal(str(won)) / Decimal(str(price))
                 
                 self.dashboard.log(f"CMD SELL: {ticker} {volume} @ {price}")
-                 # TODO: Trigger sell via account/position_manager
+                
+                # Trigger sell via account_manager
+                if price:
+                    self.account_manager.sell_limit_order(ticker, float(price), float(volume))
+                else:
+                    self.account_manager.sell_market_order(ticker, float(volume))
+
+            elif action == "cancel":
+                uuid = data.get("uuid")
+                self.dashboard.log(f"CMD CANCEL: {uuid}")
+                result = self.account_manager.cancel_order(uuid)
+                if result:
+                     self.dashboard.log(f"Order Cancelled: {result}")
+                else:
+                     self.dashboard.log(f"Order Cancel Failed or Not Found: {uuid}")
                  
             else:
                 self.dashboard.log(f"Unknown Action: {action}")

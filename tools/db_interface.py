@@ -1,7 +1,7 @@
 import sqlite3
 import logging
 from pydantic import BaseModel
-from typing import Any, get_type_hints, TypeVar, Type, List, Dict
+from typing import Any, get_type_hints, TypeVar, Type, List, Dict, Optional
 from decimal import Decimal
 import json
 
@@ -68,20 +68,40 @@ class DBInterface:
             sql_type = cls._map_type_to_sql(field_type)
             columns_def.append(f"{field_name} {sql_type}")
         
-        query = f"""
-            CREATE TABLE IF NOT EXISTS {table_name} (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                {', '.join(columns_def)}
-            )
-        """
+        # Check if ID is integer or string in the model
+        id_field = fields.get('id')
+        if id_field and (id_field.annotation == int or id_field.annotation == Optional[int]):
+             query = f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    {', '.join(columns_def)}
+                )
+            """
+        else:
+             # Default to TEXT PK if not explicitly int (Assuming UUID strings)
+             query = f"""
+                CREATE TABLE IF NOT EXISTS {table_name} (
+                    id TEXT PRIMARY KEY,
+                    {', '.join(columns_def)}
+                )
+            """
         
         archive_table_name = f"{table_name}_archive"
-        archive_query = f"""
-            CREATE TABLE IF NOT EXISTS {archive_table_name} (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                {', '.join(columns_def)}
-            )
-        """
+        
+        if id_field and (id_field.annotation == int or id_field.annotation == Optional[int]):
+            archive_query = f"""
+                CREATE TABLE IF NOT EXISTS {archive_table_name} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    {', '.join(columns_def)}
+                )
+            """
+        else:
+            archive_query = f"""
+                CREATE TABLE IF NOT EXISTS {archive_table_name} (
+                    id TEXT PRIMARY KEY,
+                    {', '.join(columns_def)}
+                )
+            """
         
         # timeout 10초 설정
         with sqlite3.connect(db_path, timeout=10.0) as conn:
@@ -107,7 +127,7 @@ class DBInterface:
         keys = ", ".join(data.keys())
         placeholders = ", ".join([f":{k}" for k in data.keys()])
         
-        query = f"INSERT INTO {table_name} ({keys}) VALUES ({placeholders})"
+        query = f"INSERT OR REPLACE INTO {table_name} ({keys}) VALUES ({placeholders})"
         
         
         with sqlite3.connect(db_path, timeout=10.0) as conn:

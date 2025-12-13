@@ -8,7 +8,7 @@ from typing import List
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.position_manager import PositionManager, Position
-from strategy.base import Signal, SignalType
+from strategy.models import Signal, SignalType
 
 class MockBalance:
     def __init__(self):
@@ -59,7 +59,7 @@ def test_position_manager():
     manager.on_order_fill(order_info)
     
     assert len(manager.positions) == 1
-    pos = manager.positions[0]
+    pos = list(manager.positions.values())[0]
     assert pos.ticker == 'KRW-BTC'
     assert pos.volume == 0.1
     # Check default strategy

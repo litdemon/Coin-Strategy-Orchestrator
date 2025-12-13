@@ -23,8 +23,8 @@ class DBUpbit:
         self.asset_repo = AssetRepository(db_path)
         self.order_repo = OrderRepository(db_path)
         
-        # Lock for thread safety
-        self.lock = threading.Lock()
+        # Lock for thread safety - Use RLock for reentrant locking (e.g. process_order_complete calls add_balance)
+        self.lock = threading.RLock()
         
         # Initialize DB tables
         self.asset_repo.init_db()
@@ -175,6 +175,20 @@ class DBUpbit:
         with self.lock:
             self.order_repo.save(new_order)
             
+            # Emit myOrder event
+            msg = {
+                "type": "myOrder",
+                "code": new_order.market,
+                "uuid": new_order.uuid,
+                "ask_bid": new_order.side,
+                "order_type": new_order.ord_type,
+                "state": new_order.state,
+                "price": float(new_order.price),
+                "volume": float(new_order.volume),
+                "created_at": new_order.created_at.isoformat() if new_order.created_at else None
+            }
+            self.callback(self, msg)
+            
         return new_order
 
     def get_order(self, uuid: str) -> Optional[OrderDTO]:
@@ -191,6 +205,20 @@ class DBUpbit:
             if order and order.state == "wait":
                 cancelled_order = order.model_copy(update={"state": "cancel"})
                 self.order_repo.save(cancelled_order)
+                
+                # Emit myOrder event
+                msg = {
+                    "type": "myOrder",
+                    "code": cancelled_order.market,
+                    "uuid": cancelled_order.uuid,
+                    "ask_bid": cancelled_order.side,
+                    "order_type": cancelled_order.ord_type,
+                    "state": cancelled_order.state,
+                    "price": float(cancelled_order.price),
+                    "volume": float(cancelled_order.volume),
+                }
+                self.callback(self, msg)
+                
                 return cancelled_order
             return order
 
@@ -199,6 +227,19 @@ class DBUpbit:
         with self.lock:
             completed_order = order.model_copy(update={"state": "done"})
             self.order_repo.save(completed_order)
+            
+            # Emit myOrder event
+            msg = {
+                "type": "myOrder",
+                "code": completed_order.market,
+                "uuid": completed_order.uuid,
+                "ask_bid": completed_order.side,
+                "order_type": completed_order.ord_type,
+                "state": completed_order.state,
+                "price": float(completed_order.price),
+                "volume": float(completed_order.volume),
+            }
+            self.callback(self, msg)
             
             # Logic from old Account.on_order_complete
             krw_volume = completed_order.volume * (completed_order.price or 0)
@@ -220,6 +261,8 @@ class DBUpbit:
                 self.sub_balance(completed_order.market, completed_order.volume)
                 # 2. Add KRW
                 self.add_balance("KRW", krw_volume - fee)
+            
+            return completed_order
 
     def check_and_execute_orders(self, market: str, orderbook_units: List[dict]) -> Optional[OrderDTO]:
         if not orderbook_units:
@@ -254,7 +297,7 @@ class DBUpbit:
                 executed = True
             
             if executed:
-                self.process_order_complete(order)
-                return order # Return first executed for now
+                completed_order = self.process_order_complete(order)
+                return completed_order # Return first executed for now
                 
         return None
