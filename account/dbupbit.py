@@ -58,6 +58,10 @@ class DBUpbit:
             
         currency = ticker_obj.currency
         
+        # FiX: Ensure KRW always has avg_buy_price of 1
+        if currency == "KRW":
+            avg_buy_price = Decimal("1")
+        
         with self.lock:
             asset = self.asset_repo.get(currency)
             
