@@ -53,13 +53,26 @@ class Manager(WebsocketObserver):
         self.counter = Counter()
         self.virtual = virtual
 
-    def init(self):
+    def init(self, config: dict = None):
 
         self.dashboard = Dashboard() # Initialize Dashboard
 
         if self.virtual:
             self.account_manager = AccountDBManager(callback=self.on_ws_message)
             self.upbit_asset = None
+            
+            # Initial Funding for Virtual Account
+            initial_balance = 0
+            if config and "account" in config and "initial_balance" in config["account"]:
+                initial_balance = config["account"]["initial_balance"]
+                
+            if initial_balance > 0:
+                # Check current KRW balance
+                current_balance = self.account_manager.get_balance("KRW")
+                if current_balance == 0:
+                    logger.info(f"Initializing Virtual Account with {initial_balance:,.0f} KRW")
+                    self.dashboard.log(f"Init Virtual Account: {initial_balance:,.0f} KRW")
+                    self.account_manager.manager.add_balance("KRW", Decimal(str(initial_balance)))
         else:
             self.account_manager = AccountUpbitManager(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
             self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
@@ -72,6 +85,7 @@ class Manager(WebsocketObserver):
         self.price_ob = CurrentPrice()
         
         # Initialize Messaging System
+        # Default Config
         mqtt_config = {
             "broker_type": "mqtt",
             "mqtt": {
@@ -80,6 +94,11 @@ class Manager(WebsocketObserver):
                 "client_id": f"strategy_manager_{int(time.time())}"
             }
         }
+        
+        # Override with provided config if available
+        if config and "messaging" in config:
+             mqtt_config = config["messaging"]
+             
         self.messaging = MessagingFactory.create_client(mqtt_config)
         if self.messaging.connect():
             self.dashboard.log("Messaging Connected")
@@ -422,7 +441,23 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
 
     manager = Manager(virtual=True)
-    manager.init()
+    
+    # Default Configuration
+    config = {
+        "messaging": {
+            "broker_type": "mqtt",
+            "mqtt": {
+                "host": "mqtt.toybox7.net",
+                "port": 1883,
+                "client_id": f"strategy_manager_{int(time.time())}"
+            }
+        },
+        "account": {
+            "initial_balance": 10000000
+        }
+    }
+    
+    manager.init(config=config)
     try:
         while True:
             manager.run()
