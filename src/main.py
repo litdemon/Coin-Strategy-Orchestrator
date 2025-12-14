@@ -4,9 +4,8 @@ import logging
 import pyupbit
 import sys
 import json
+import traceback
 from decimal import Decimal
-
-
 
 # Add project root to sys.path if not present
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -120,7 +119,7 @@ class Manager(WebsocketObserver):
         self.position_manager = PositionManager(db_path=DB_PATH)
         for balance in balances:
             ticker = Ticker(balance.get("currency"))
-            self.dashboard.update_balance(balance)
+            self.dashboard.update(balance)
             if ticker.currency == "KRW":
                 continue
 
@@ -152,11 +151,7 @@ class Manager(WebsocketObserver):
         # Log loaded positions
         for pos in self.position_manager.positions.values():
             self.dashboard.log(f"Loaded Position: {pos.ticker:<10} {pos.entry_price:<10,.0f} {pos.volume * pos.entry_price:,.0f}")
-        
-        # Update dashboard with loaded positions
-        loaded_tickers = set(pos.ticker for pos in self.position_manager.positions.values())
-        for ticker in loaded_tickers:
-            self._update_positions_dashboard(ticker)
+            self.dashboard.update(pos.model_dump())
         
 
     def run(self):
@@ -173,6 +168,9 @@ class Manager(WebsocketObserver):
                 is_stop = self.on_task(**task)
             except Exception as e:
                 logger.error(f"Error processing task: {e}")
+                # traceback
+                
+                logger.error(traceback.format_exc())
         logger.info("Task queue is empty")
 
     def stop(self):
@@ -226,7 +224,6 @@ class Manager(WebsocketObserver):
                 self.price_ob.update(market, price)
                 if self.price_ob.is_updated(market):
                     self.on_ticker(message)
-                    
 
             elif message["type"] == "orderbook":
                 self.on_orderbook(message)
@@ -326,12 +323,11 @@ class Manager(WebsocketObserver):
                 
                 is_market = False
                 if price is not None and float(price) <= 0:
-                     is_market = True
-                     price = None
+                    is_market = True
+                    price = None
                 
                 if price is None and not is_market:
-                     price = self.price_ob.get(ticker)
-                     self.dashboard.log(f"Sell Price not specified. Using Current Price: {price}")
+                    price = pyupbit.get_current_price(ticker)
                      
                 if won and price:
                     volume = Decimal(str(won)) / Decimal(str(price))
@@ -375,13 +371,14 @@ class Manager(WebsocketObserver):
         
         krw_volume = volume * entry_price
 
-        self.dashboard.log(f"Order detected {ticker}: {ask_bid}:{state}:{entry_price:.0f} {krw_volume:,.0f}won")
+        self.dashboard.log(f"Order🧾 detected {ticker}: {ask_bid}:{state}:{entry_price:.0f} {krw_volume:,.0f}won")
         
-        # 새로운 position 생성
-        self.position_manager.on_order_fill(message)
-
         if ask_bid == "bid" and state == "done":
-            self._update_positions_dashboard(ticker)
+            self.dashboard.update(message)
+            # 새로운 position 생성
+            self.position_manager.on_order_fill(message)
+        elif ask_bid == "ask" and state == "done":
+            pass
         elif ask_bid == "cancel":
             pass
         else:
@@ -392,10 +389,8 @@ class Manager(WebsocketObserver):
         for asset in assets:
             ticker = asset['currency']
             balance = asset['balance']
-            # self.balance is undefined in Manager. Update dashboard instead.
-            # Assuming update_balance takes the asset dict.
-            self.dashboard.update_balance(asset)
-            self.dashboard.log(f"Asset Update: {ticker}: {balance:.4f}")
+            # self.dashboard.update(asset)
+            self.dashboard.log(f"Asset Update: {ticker}: {balance:.4f} by myAsset")
             
 
     def on_ticker(self, message: dict):
@@ -406,9 +401,10 @@ class Manager(WebsocketObserver):
             return
         
         # Update Dashboard Ticker Info
-        self.dashboard.update_ticker(message=message)
-        if self.strategy_manager:
-            self.strategy_manager.on_ticker(ticker, current_price)
+        self.dashboard.update(message)
+        # TODO: Strategy Manager
+        # if self.strategy_manager:
+        #     self.strategy_manager.on_ticker(ticker, current_price)
 
     def on_orderbook(self, message: dict):
         tiker = Ticker(message.get('code', ''))
@@ -427,19 +423,6 @@ class Manager(WebsocketObserver):
 
     def on_signal(self, position: Position=None, signals: Any=None):
         pass
-
-    def _update_positions_dashboard(self, ticker: str):
-        """Update dashboard with current positions for the ticker."""
-        positions = self.position_manager.get_positions(ticker, only_active=True)
-        pos_data = []
-        for p in positions:
-            pos_data.append({
-                'id': p.id,
-                'entry_price': p.entry_price,
-                'volume': p.volume,
-                'strategies': self.strategy_manager.load_strategies_by_position_id(p.id) if self.strategy_manager else []
-            })
-        self.dashboard.update_positions(ticker, pos_data)
 
     # -- Main -------------------------------------
 if __name__ == "__main__":
