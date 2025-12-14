@@ -447,5 +447,45 @@ class TestUpbitWebSocket(unittest.TestCase):
         else:
              print("WebSocket connection verified.")
 
+class TestWebSocketSync(unittest.TestCase):
+    def setUp(self):
+        self.test_db_path = "test_ws_sync.db"
+        if os.path.exists(self.test_db_path):
+            os.remove(self.test_db_path)
+
+        # Patch DB path globally
+        self.patcher_manager = patch('account.manager.DB_PATH', self.test_db_path)
+        self.patcher_main = patch('src.main.DB_PATH', self.test_db_path)
+        
+        self.patcher_manager.start()
+        self.patcher_main.start()
+        
+        # Setup DB with active order and asset
+        self.db = DBUpbit(db_path=self.test_db_path)
+        self.db.add_balance("KRW", Decimal("10000000"))
+        self.db.create_order("KRW-XRP", "bid", "limit", Decimal("1000"), Decimal("100")) # Order only
+        self.db.add_balance("KRW-BTC", Decimal("1"), Decimal("50000000")) # Asset
+
+    def tearDown(self):
+        self.patcher_manager.stop()
+        self.patcher_main.stop()
+        if os.path.exists(self.test_db_path):
+            os.remove(self.test_db_path)
+
+    def test_startup_subscription(self):
+        print("\n[Test] WebSocket Startup Subscription Sync")
+        manager = Manager(virtual=True)
+        manager.dashboard = MagicMock()
+        manager.messaging = MagicMock()
+        
+        manager.init()
+        
+        codes = manager.upbit_websocket.codes
+        print(f"Subscribed Codes: {codes}")
+        
+        self.assertIn("KRW-BTC", codes)
+        self.assertIn("KRW-XRP", codes)
+
 if __name__ == "__main__":
+
     unittest.main()

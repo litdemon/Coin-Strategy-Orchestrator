@@ -30,7 +30,7 @@ class PositionManager:
     def __init__(self, db_path: str = "account.db"):
         self.db_path = db_path
         Position.init_db(self.db_path)
-        self.positions: Dict[str, Position] = { p.id: p for p in Position.load_all(self.db_path) }
+        self.positions: Dict[str, Position] = { p.id: p for p in Position.load_all(self.db_path) if not p.is_closed }
 
     def create_position(self, ticker: str, entry_price: float, volume: float):
         """
