@@ -46,6 +46,7 @@ class TestStrategyPersistence(unittest.TestCase):
         del self.manager
         
         new_manager = StrategyManager(db_path=self.db_path, account_manager=self.account_manager)
+        new_manager.register_strategy("trailing_stop", TrailingStopStrategy)
         # Assuming load_strategies is called manually or in init? 
         # StrategyManager usually loads in init or explicit method.
         # Let's check StrategyManager definition if needed. 
