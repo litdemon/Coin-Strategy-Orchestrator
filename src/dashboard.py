@@ -9,7 +9,9 @@ import logging
 from tools.candle import Candle
 import pyupbit
 from tools.ticker import Ticker
-
+from tools.currency_print import WonColor, RateColor
+from decimal import Decimal
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ class Widget(ABC):
         pass
     
     @abstractmethod
-    def render(self) -> List[str]:
+    def render(self, current_price: Decimal = Decimal("0")) -> str:
         pass
 
 
@@ -70,8 +72,8 @@ class LogWidget(Widget):
         if len(self.logs) > self.max_logs:
             self.logs.pop(0)
     
-    def render(self) -> List[str]:
-        return self.logs
+    def render(self, current_price: Decimal = Decimal("0")) -> str:
+        return "\n".join(self.logs)
 
 class StrategyWidget(Widget):
     def __init__(self, id: str, parent: 'Widget'):
@@ -89,7 +91,7 @@ class StrategyWidget(Widget):
         if 'state' in data:
              self.state = data.get('state', self.state)
 
-    def render(self) -> str:
+    def render(self, current_price: Decimal = Decimal("0")) -> str:
         if self.state:
             return f"{self.name}({self.state})"
         return f"{self.name}"
@@ -97,14 +99,14 @@ class StrategyWidget(Widget):
 class PositionWidget(Widget):
     def __init__(self, id: str, parent: 'Widget'):
         super().__init__(id, parent)
-        self.entry_price = 0.0
-        self.volume = 0.0
+        self.entry_price = Decimal("0")
+        self.volume = Decimal("0")
         self.strategies: Dict[str, StrategyWidget] = {} # Map ID to Widget
 
     def update(self, data: Dict[str, Any]):
         # data is Position dict or dump
-        self.entry_price = float(data.get('entry_price', self.entry_price))
-        self.volume = float(data.get('volume', self.volume))
+        self.entry_price = Decimal(str(data.get('entry_price', self.entry_price)))
+        self.volume = Decimal(str(data.get('volume', self.volume)))
         
         # Strategies might be passed as list of dicts/DTOs?
         # If passed as 'strategies' list, we might need to update them here or let Dashboard route them?
@@ -114,7 +116,7 @@ class PositionWidget(Widget):
         # So Position update is mostly price/volume.
         pass
 
-    def render(self, current_price: float) -> str:
+    def render(self, current_price: Decimal = Decimal("0")) -> str:
         # Render strategies
         strategy_str = ", ".join([s.render() for s in self.children.values()])
         
@@ -133,17 +135,62 @@ class PositionWidget(Widget):
         pid_short = str(self.id)[:4]
 
         return f"   └── Rot: {strategy_str} | PnL: {profit_rate_str} | Vol: {volume_krw:,.0f}"
+    
+class AssetWidget(Widget):
+    def __init__(self, currency: str):
+        super().__init__(currency, None) # Root widget
+        self.currency = currency
+        self.balance = Decimal("0")
+        self.avg_buy_price = Decimal("0")
+        
+    
+    def update(self, data: Dict[str, Any]):
+        self.balance = Decimal( data.get('balance', self.balance) )
+        self.avg_buy_price = Decimal(data.get('avg_buy_price', self.avg_buy_price))
+    
+    def render(self, current_price: Decimal = Decimal("0")) -> str:
+        
+        if self.balance == 0 or self.currency == "KRW":
+            return f"{WonColor(self.balance)}"
+        
+        profit = (current_price - self.avg_buy_price) / self.avg_buy_price * 100
+        profit_won = (current_price - self.avg_buy_price) * self.balance
 
+        return f" {self.balance * current_price:>10,.0f}원 ({WonColor(profit_won)}:{RateColor(profit)}) | 현재가: {current_price:,.0f}"
+
+
+class OrderWidget(Widget):
+    def __init__(self, id: str, parent: 'Widget'=None):
+        super().__init__(id, parent)
+        self.uuid = id
+        self.market = ""
+        self.side = ""
+        self.ord_type = ""
+        self.price = Decimal("0")
+        self.volume = Decimal("0")
+        self.created_at = time.time()
+
+    def update(self, data: Dict[str, Any]):
+        self.uuid = data.get('uuid', self.uuid)
+        self.market = data.get('market', self.market)
+        self.side = data.get('side', self.side)
+        self.ord_type = data.get('ord_type', self.ord_type)
+        self.price = data.get('price', self.price)
+        self.volume = data.get('volume', self.volume)
+
+    def render(self, current_price: Decimal = Decimal("0")) -> str:
+        total = self.price * self.volume
+        return f"Order: {self.market} | {self.side} | {self.ord_type} | {self.volume:,.0f} x {self.price:,.0f}원 | {total:,.0f}원 | "
 
 class TickerWidget(Widget):
     
     def __init__(self, ticker: str):
         super().__init__(ticker, None) # Root widget
         self.coin = Ticker(ticker)
-        self.amount = 0
-        self.avg_buy_price = 0.0
+        
+        self.asset : AssetWidget = AssetWidget(ticker)
         # Candle initialization (could be async or deferred)
-        self.candle : Candle = Candle(self.coin.ticker, 0.0)
+        self.candle : Candle = Candle(self.coin.ticker, Decimal("0"))
         self.spinner = Spinner()
         try:
              ohlcv = pyupbit.get_ohlcv(self.coin.ticker, interval="day")
@@ -155,9 +202,7 @@ class TickerWidget(Widget):
     def update(self, data: Dict[str, Any]):
         # Check if balance update or ticker update
         if 'balance' in data:
-            self.amount = float(data.get('balance', 0))
-            if 'avg_buy_price' in data:
-                self.avg_buy_price = float(data.get('avg_buy_price', 0))
+            self.asset.update(data)
         
         if 'trade_price' in data: # Ticker update
              self.candle.update(data['trade_price'])
@@ -168,27 +213,15 @@ class TickerWidget(Widget):
         self.spinner.next()
         
         
-    def render(self) -> List[str]:
+    def render(self, current_price: Decimal = Decimal("0")) -> str:
         output = []
         
         current_price = self.candle.current_price()
-        
-        # Calculate Amount (Invested KRW)
-        amount = self.amount * self.avg_buy_price
-        now_amount = self.amount * current_price
-        
-        # Calculate Profit % (Evaluation profit based on avg buy price)
-        if self.avg_buy_price > 0 and current_price > 0:
-            profit_rate = (current_price - self.avg_buy_price) / self.avg_buy_price * 100
-            if profit_rate < 0:
-                profit_str = f"\033[34m{now_amount - amount:,.0f}({profit_rate:.2f}%)\033[0m"
-            else:
-                profit_str = f"\033[31m{now_amount - amount:,.0f}({profit_rate:.2f}%)\033[0m"
-        else:
-            profit_str = f"{now_amount - amount:,.0f}(0.0%)"
+        # Candle uses float, AssetWidget uses Decimal
+        current_price_dec = Decimal(str(current_price))
 
-        header = f" {self.coin.ticker:<10} | {amount:>12,.0f} | {profit_str:12} | {current_price:>12,.0f} {self.spinner()} | {self.candle.render()}"
-        output.append(header)
+        output.append(f"{self.spinner()} {self.coin.ticker:<10} |  {self.candle.render()}")
+        output.append(f"   └── Asset | {self.asset.render(current_price_dec)} ")
         
         # Render child widgets (Positions and Strategies)
         if self.children:
@@ -198,17 +231,17 @@ class TickerWidget(Widget):
             
             # Render Strategies first
             if strategies:
-                strat_str = ", ".join([s.render() for s in strategies])
+                strat_str = ", ".join([s.render(current_price_dec) for s in strategies])
                 output.append(f"   └── Strategies: {strat_str}")
 
             # Render Positions
             for pos in positions:
-                output.append(pos.render(current_price))
+                output.append(pos.render(current_price_dec))
         else:
             output.append(f"   └── No Active Positions")
         
         output.append("-" * MAX_WIDTH)
-        return output
+        return "\n".join(output)
 
 class Dashboard:
     def __init__(self):
@@ -225,6 +258,7 @@ class Dashboard:
         
         self.lock = threading.Lock()
         self._thread = None
+        self.spinner = Spinner()
 
     def start(self):
         self.running = True
@@ -245,7 +279,7 @@ class Dashboard:
         self.queue.put(data)
 
     def log(self, message: str):
-        self.update({'type': 'log', 'message': message})
+        self.update({'log': {'message': message}})
         logger.info(message)
         
     # -- Internal Processing --
@@ -254,44 +288,57 @@ class Dashboard:
             # 1. Identify Target Widget ID
             target_id = None
             widget_type = None
+            payload = None
             
-            # Heuristic to determine type and ID
-            if 'type' in data and data.get('type') == 'myOrder':
-                 target_id = data['code']
-                 widget_type = 'ticker'
-            elif 'message' in data and data.get('type') == 'log':
-                 target_id = 'log'
-            elif 'strategy_id' in data: # Strategy
-                 target_id = data['strategy_id']
-                 widget_type = 'strategy'
-            elif 'id' in data: # Position (has 'id') - careful, check context
-                 # Position dump has 'id', 'ticker'
-                 if 'ticker' in data and 'entry_price' in data:
-                     target_id = data['id']
-                     widget_type = 'position'
-            elif 'currency' in data: # Balance
-                 target_id = Ticker(data['currency']).ticker # e.g. KRW-BTC
-                 widget_type = 'ticker'
-            elif 'code' in data: # Ticker update (Upbit websocket)
-                 target_id = Ticker(data['code']).ticker
-                 widget_type = 'ticker'
-            elif 'ticker' in data: 
-                 if 'price' in data: # Simple ticker update
-                     target_id = Ticker(data['ticker']).ticker
-                     widget_type = 'ticker'
+            try:
+                mtype = next(iter(data))
+                payload = data[mtype]
+            except StopIteration:
+                self.log(f"Received empty data: {data}")
+                return
+
+            if 'ticker' in mtype:
+                target_id = Ticker(payload.get('code')).ticker
+                widget_type = 'ticker'
+            elif 'log' in mtype:
+                # Log handles its own update structure usually, or just string?
+                # LogWidget.update expects dict with 'message'.
+                # payload is {'message': '...'} usually from self.log()
+                self.log_widget.update(payload)
+                return
+            elif 'asset' in mtype:
+                target_id = Ticker(payload.get('currency')).ticker
+                widget_type = 'ticker'
+            elif 'orderbook' in mtype:
+                target_id = Ticker(payload.get('code')).ticker
+                widget_type = 'ticker'
+            elif 'position' in mtype:
+                target_id = payload.get('id')
+                widget_type = 'position'
+            elif 'strategy' in mtype:
+                target_id = payload.get('strategy_id')
+                widget_type = 'strategy'
+            elif 'order' in mtype:
+                target_id = payload.get('uuid')
+                widget_type = 'order'
+            else:
+                self.log(f"Unknown message type: {data}")
+                return
 
             if not target_id:
-                logger.debug(f"Dashboard: Could not identify target ID for data: {data.keys()}")
+                # Only log if it's not a log message itself (recursion risk?)
+                # But we handled log above.
+                self.log(f"Dashboard: Could not identify target ID for data: {data.keys()}")
                 return
 
             # 2. Find or Create Widget
             if target_id not in self.registry:
                 # Create if missing
-                self._create_widget(target_id, widget_type, data)
+                self._create_widget(target_id, widget_type, payload)
             
             # 3. Update Widget
             if target_id in self.registry:
-                self.registry[target_id].update(data)
+                self.registry[target_id].update(payload)
                 
     def _create_widget(self, id: str, w_type: str, data: Dict[str, Any]):
         widget = None
@@ -300,7 +347,11 @@ class Dashboard:
         if w_type == 'ticker':
             widget = TickerWidget(id) # Parent None
             widget.avg_buy_price = data.get('avg_buy_price', 0)
-            
+        
+        elif w_type == 'order':
+            widget = OrderWidget(id) # Parent None
+            widget.update(data)
+        
         elif w_type == 'position':
             # Needs parent ticker
             ticker = Ticker(data.get('ticker')).ticker
@@ -358,7 +409,9 @@ class Dashboard:
                     except queue.Empty:
                         break
                     except Exception as e:
+                        logger.error(f"Error processing item: {traceback.print_exc()}")
                         logger.error(f"Error processing item: {e}")
+                        break
 
                 # Render
                 now = time.time()
@@ -369,8 +422,9 @@ class Dashboard:
                 time.sleep(0.1)
                 
             except Exception as e:
-                with open("dashboard_error.log", "a") as f:
-                    f.write(f"ERROR: {e}\n")
+                print(traceback.print_exc())
+                logger.error(f"Error in run loop: {e}")
+                self.running = False
 
     def _render(self):
         # Move cursor to top-left
@@ -378,7 +432,7 @@ class Dashboard:
         
         output = []
         output.append("=" * MAX_WIDTH)
-        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')})")
+        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner.next()}")
         output.append("=" * MAX_WIDTH)
         
         with self.lock:
@@ -386,12 +440,16 @@ class Dashboard:
             # Filter registry for TickerWidgets
             tickers = sorted([w for w in self.registry.values() if isinstance(w, TickerWidget)], key=lambda x: x.id)
             for widget in tickers:
-                output.extend(widget.render())
+                output.append(widget.render())
+
+            orders = sorted([w for w in self.registry.values() if isinstance(w, OrderWidget)], key=lambda x: x.id)
+            for widget in orders:
+                output.append(widget.render())
 
         # Logs area
         output.append("")
         output.append("[Recent Logs]")
-        output.extend(self.log_widget.render()) # Already returns list of strings
+        output.append(self.log_widget.render()) # Already returns list of strings
             
         # Fill rest of screen
         sys.stdout.write("\n".join([line + "\033[K" for line in output]) + "\033[J")

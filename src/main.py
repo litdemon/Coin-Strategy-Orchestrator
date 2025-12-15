@@ -26,6 +26,7 @@ from models.my_asset import MyAsset
 from tools.ticker import Ticker
 from tools.converter import Decimal2float
 from tools.counter import Counter
+from tools.currency_print import Won
 from account.manager import AccountDBManager, AccountUpbitManager
 from src.dashboard import Dashboard
 from src.position_manager import Position, PositionManager
@@ -119,7 +120,7 @@ class Manager(WebsocketObserver):
         self.position_manager = PositionManager(db_path=DB_PATH)
         for balance in balances:
             ticker = Ticker(balance.get("currency"))
-            self.dashboard.update(balance)
+            self.dashboard.update({'asset': balance})
             if ticker.currency == "KRW":
                 continue
 
@@ -151,7 +152,7 @@ class Manager(WebsocketObserver):
         # Log loaded positions
         for pos in self.position_manager.positions.values():
             self.dashboard.log(f"Loaded Position: {pos.ticker:<10} {pos.entry_price:<10,.0f} {pos.volume * pos.entry_price:,.0f}")
-            self.dashboard.update(pos.model_dump())
+            self.dashboard.update({'position': pos.model_dump()})
         
 
     def run(self):
@@ -308,6 +309,14 @@ class Manager(WebsocketObserver):
                 if won and price:
                     volume = Decimal(str(won)) / Decimal(str(price))
                 
+                # Validation: Price and Volume must be positive
+                if volume is not None and float(volume) <= 0:
+                     self.dashboard.log(f"Invalid Buy Volume: {volume}. Must be positive.")
+                     return
+                if price is not None and float(price) <= 0 and not is_market:
+                     self.dashboard.log(f"Invalid Buy Price: {price}. Must be positive for Limit Order.")
+                     return
+
                 self.dashboard.log(f"CMD BUY: {ticker} {volume} @ {'Market' if is_market else price}")
                 
                 # Trigger buy via account_manager
@@ -341,6 +350,14 @@ class Manager(WebsocketObserver):
                     balance = self.account_manager.get_balance(ticker)
                     self.dashboard.log(f"Sell All requested. Avail Balance: {balance}")
                     volume = balance
+                
+                # Validation: Price and Volume must be positive (except Sell All handled above)
+                if volume is not None and float(volume) <= 0 and not is_sell_all:
+                     self.dashboard.log(f"Invalid Sell Volume: {volume}. Must be positive.")
+                     return
+                if price is not None and float(price) <= 0 and not is_market:
+                     self.dashboard.log(f"Invalid Sell Price: {price}. Must be positive for Limit Order.")
+                     return
 
                 self.dashboard.log(f"CMD SELL: {ticker} {volume} @ {'Market' if is_market else price}")
                 
@@ -400,10 +417,10 @@ class Manager(WebsocketObserver):
         
         krw_volume = volume * entry_price
 
-        self.dashboard.log(f"Order🧾 detected {ticker}: {ask_bid}:{state}:{entry_price:.0f} {krw_volume:,.0f}won")
+        self.dashboard.log(f"Order🧾 detected {ticker}: {ask_bid}:{state} {Won(entry_price)} {Won(krw_volume)}")
+        self.dashboard.update({'order': message})
         
         if ask_bid == "bid" and state == "done":
-            self.dashboard.update(message)
             # 새로운 position 생성
             self.position_manager.on_order_fill(message)
         elif ask_bid == "ask" and state == "done":
@@ -414,11 +431,15 @@ class Manager(WebsocketObserver):
             pass
 
     def on_my_asset(self, cls, message: dict):
+        logger.info(f"Asset Update: {message}")
+
+        # Order 정보를 보고 asset을 업데이트 할 예정
         assets = message['assets']
         for asset in assets:
             ticker = asset['currency']
             balance = asset['balance']
-            # self.dashboard.update(asset)
+            if ticker == "KRW":
+                self.dashboard.update({'asset': asset})
             self.dashboard.log(f"Asset Update: {ticker}: {balance:.4f} by myAsset")
             
 
@@ -430,7 +451,7 @@ class Manager(WebsocketObserver):
             return
         
         # Update Dashboard Ticker Info
-        self.dashboard.update(message)
+        self.dashboard.update({'ticker': message})
         # TODO: Strategy Manager
         # if self.strategy_manager:
         #     self.strategy_manager.on_ticker(ticker, current_price)

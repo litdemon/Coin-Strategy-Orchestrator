@@ -375,15 +375,15 @@ class DBUpbit:
                         if new_balance <= 0: 
                             new_balance = Decimal("0")
                             new_locked = Decimal("0")
-                            avg_price = Decimal("0")
+                            avg_buy_price = Decimal("0")
                         else:
-                            avg_price = asset.avg_price
+                            avg_buy_price = asset.avg_buy_price
                             
-                        new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked, "avg_price": avg_price})
+                        new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked, "avg_buy_price": avg_buy_price})
                         self.asset_repo.save(new_asset)
                         
                         # Emit
-                        item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked, avg_price=new_asset.avg_price)
+                        item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked, avg_buy_price=new_asset.avg_buy_price)
                         self.callback(self, MyAsset(assets=[item]).model_dump())
 
             else:

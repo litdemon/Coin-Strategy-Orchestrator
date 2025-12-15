@@ -24,6 +24,8 @@ class Emoji:
     FILL = "�"
     PENDING = "⏳"
     CANCEL = "❌"
+    WAIT = "🔄"
+    DONE = "✅"
 
     # Price / Market Event
     PRICE_UP = "📈"
