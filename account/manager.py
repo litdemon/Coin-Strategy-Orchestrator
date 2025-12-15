@@ -129,8 +129,8 @@ class AccountUpbitManager(AccountBase):
 
 
 class AccountDBManager(AccountBase):
-    def __init__(self, callback: Callable[[Any, dict], None]):
-        self.manager = DBUpbit(DB_PATH, callback)
+    def __init__(self, callback: Callable[[Any, dict], None], config: dict = None):
+        self.manager = DBUpbit(DB_PATH, callback, config)
     
     def get_balance(self, ticker: str) -> Decimal:
         return self.manager.get_balance(ticker)

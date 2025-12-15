@@ -58,7 +58,8 @@ class Manager(WebsocketObserver):
         self.dashboard = Dashboard() # Initialize Dashboard
 
         if self.virtual:
-            self.account_manager = AccountDBManager(callback=self.on_ws_message)
+            account_config = config.get("account", {}) if config else {}
+            self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config)
             self.upbit_asset = None
             
             # Initial Funding for Virtual Account
@@ -491,7 +492,7 @@ class Manager(WebsocketObserver):
 if __name__ == "__main__":
     time_format = "%m-%d %H:%M:%S"
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
-    logging.basicConfig(level=logging.DEBUG, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
+    logging.basicConfig(level=logging.INFO, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
 
     manager = Manager(virtual=True)
     
@@ -506,7 +507,10 @@ if __name__ == "__main__":
             }
         },
         "account": {
-            "initial_balance": 10000000
+            "initial_balance": 10000000,
+            "fees": {
+                "KRW": 0.0005  # 0.05%
+            }
         }
     }
     
@@ -516,6 +520,3 @@ if __name__ == "__main__":
             manager.run()
     except KeyboardInterrupt:
         manager.stop()
-
-
-    

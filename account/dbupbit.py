@@ -15,9 +15,14 @@ from models.my_asset import MyAsset, AssetItem
 logger = logging.getLogger(__name__)
 
 class DBUpbit:
-    def __init__(self, db_path: str = "account.db", callback: Callable[[Any, dict], None] = None):
+    def __init__(self, db_path: str = "account.db", callback: Callable[[Any, dict], None] = None, config: dict = None):
         self.db_path = db_path
         self.callback = callback or (lambda *args, **kwargs: None)
+        self.config = config or {}
+        
+        # Default Fee Rates if not provided
+        if "fees" not in self.config:
+            self.config["fees"] = {"KRW": 0.0005}
         
         # Repositories
         self.asset_repo = AssetRepository(db_path)
@@ -28,7 +33,15 @@ class DBUpbit:
         
         # Initialize DB tables
         self.asset_repo.init_db()
+        self.asset_repo.init_db()
         self.order_repo.init_db()
+
+    def get_fee_rate(self, market: str) -> Decimal:
+        """Get fee rate for market (e.g. KRW-BTC). Default 0.05% for KRW."""
+        ticker = Ticker(market)
+        fees = self.config.get("fees", {})
+        # Fee is based on Unit Currency (KRW, BTC, etc.)
+        return Decimal(str(fees.get(ticker.unit_currency, 0.0005)))
 
     def get_balance(self, ticker: str) -> Decimal:
         """Get balance for a specific ticker (e.g. KRW-BTC -> BTC balance)."""
@@ -204,18 +217,17 @@ class DBUpbit:
             # Market: Price (if ord_type is price) or Estimate?
             # Assuming Limit for now based on test cases.
             lock_currency = ticker_obj.unit_currency
+            fee_rate = self.get_fee_rate(market)
+
             if ord_type == "limit":
                 lock_amount = price * volume
-                # Add fee buffer? Upbit usually locks total amount (cost+fee). 
-                # Calculating exact fee:
-                fee_rate = Decimal("0.0005")
+                # Add fee buffer
                 lock_amount += lock_amount * fee_rate
             else:
                  # Market Buy: 
                  # We now expect 'price' to be populated with estimated price from AccountDBManager
                  if price > 0:
                      lock_amount = price * volume
-                     fee_rate = Decimal("0.0005")
                      lock_amount += lock_amount * fee_rate
                  else:
                      # Fallback if no price provided (shouldn't happen with updated AccountDBManager)
@@ -327,7 +339,8 @@ class DBUpbit:
             
             # Logic with Locking
             krw_volume = completed_order.volume * (completed_order.price or 0)
-            fee = krw_volume * Decimal("0.0005") # 0.05%
+            fee_rate = self.get_fee_rate(completed_order.market)
+            fee = krw_volume * fee_rate
             
             if completed_order.side == "bid":
                 # Bought Coin
