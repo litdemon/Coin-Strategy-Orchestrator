@@ -1,6 +1,7 @@
 import queue
 import threading
 import time
+import json
 import os
 import sys
 from typing import Dict, Any, List, Optional
@@ -171,6 +172,7 @@ class OrderWidget(Widget):
         self.created_at = time.time()
 
     def update(self, data: Dict[str, Any]):
+        logger.info(f"Order Update: {json.dumps(data, indent=4, default=str)}")
         self.uuid = data.get('uuid', self.uuid)
         self.market = data.get('market', self.market)
         self.side = data.get('side', self.side)

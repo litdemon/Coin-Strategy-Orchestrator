@@ -431,16 +431,16 @@ class Manager(WebsocketObserver):
             pass
 
     def on_my_asset(self, cls, message: dict):
-        logger.info(f"Asset Update: {message}")
+        logger.info(f"Asset Update: {json.dumps(message, indent=4, default=str)}")
 
         # Order 정보를 보고 asset을 업데이트 할 예정
         assets = message['assets']
         for asset in assets:
-            ticker = asset['currency']
+            ticker = Ticker(asset['currency'])
             balance = asset['balance']
             if ticker == "KRW":
                 self.dashboard.update({'asset': asset})
-            self.dashboard.log(f"Asset Update: {ticker}: {balance:.4f} by myAsset")
+            self.dashboard.log(f"Asset Update: {ticker.amount(balance)} by myAsset")
             
 
     def on_ticker(self, message: dict):
