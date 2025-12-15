@@ -25,6 +25,11 @@ class AccountBase(ABC):
     @abstractmethod
     def get_balance(self, ticker: str) -> Decimal:
         pass
+
+    @abstractmethod
+    def get_asset_balance(self, ticker: str) -> dict:
+        """Get full asset balance info including avg_buy_price"""
+        pass
     
     @abstractmethod
     def get_balances(self) -> List[dict]:
@@ -70,6 +75,24 @@ class AccountUpbitManager(AccountBase):
 
     def get_balance(self, ticker: str) -> Decimal:
         return self.upbit.get_balance(ticker)
+
+    def get_asset_balance(self, ticker: str) -> dict:
+        """Get full asset balance info including avg_buy_price from Upbit"""
+        # pyupbit.get_balances() returns list of dicts. We find the matching ticker.
+        # This is inefficient if we call it often, but acceptable for order completion events.
+        balances = self.upbit.get_balances()
+        target_currency = Ticker(ticker).currency
+        for b in balances:
+            if b['currency'] == target_currency:
+                return b
+        # If not found, return empty/zero asset
+        return {
+            'currency': target_currency,
+            'balance': 0.0,
+            'avg_buy_price': 0.0,
+            'locked': 0.0,
+            'unit_currency': 'KRW'
+        }
     
     def get_balances(self) -> List[dict]:
         return self.upbit.get_balances()
@@ -111,6 +134,20 @@ class AccountDBManager(AccountBase):
     
     def get_balance(self, ticker: str) -> Decimal:
         return self.manager.get_balance(ticker)
+
+    def get_asset_balance(self, ticker: str) -> dict:
+         """Get full asset balance info including avg_buy_price from DB"""
+         # AccountDBManager -> DBUpbit -> AssetRepo
+         asset_dto = self.manager.asset_repo.get(Ticker(ticker).currency)
+         if asset_dto:
+             return asset_dto.model_dump()
+         return {
+            'currency': Ticker(ticker).currency,
+            'balance': 0.0,
+            'avg_buy_price': 0.0,
+            'locked': 0.0,
+            'unit_currency': 'KRW'
+        }
     
     def get_balances(self) -> List[dict]:
         return self.manager.get_balances()

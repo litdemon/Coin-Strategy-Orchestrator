@@ -143,21 +143,29 @@ class AssetWidget(Widget):
         self.currency = currency
         self.balance = Decimal("0")
         self.avg_buy_price = Decimal("0")
+        self.locked = Decimal("0")
         
     
     def update(self, data: Dict[str, Any]):
         self.balance = Decimal( data.get('balance', self.balance) )
         self.avg_buy_price = Decimal(data.get('avg_buy_price', self.avg_buy_price))
+        self.locked = Decimal(data.get('locked', self.locked))
     
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         
         if self.balance == 0 or self.currency == "KRW":
+            if self.locked > 0:
+                 return f"{WonColor(self.balance)} (Lock: {WonColor(self.locked)})"
             return f"{WonColor(self.balance)}"
         
         profit = (current_price - self.avg_buy_price) / self.avg_buy_price * 100
         profit_won = (current_price - self.avg_buy_price) * self.balance
 
-        return f" {self.balance * current_price:>10,.0f}원 ({WonColor(profit_won)}:{RateColor(profit)}) | 현재가: {current_price:,.0f}"
+        locked_str = ""
+        if self.locked > 0:
+            locked_str = f" (Lock: {self.locked})"
+
+        return f" {self.balance * current_price:>10,.0f}원 ({WonColor(profit_won)}:{RateColor(profit)}){locked_str} | 현재가: {current_price:,.0f}"
 
 
 class OrderWidget(Widget):
@@ -169,7 +177,9 @@ class OrderWidget(Widget):
         self.ord_type = ""
         self.price = Decimal("0")
         self.volume = Decimal("0")
+        self.volume = Decimal("0")
         self.created_at = time.time()
+        self.state = ""
 
     def update(self, data: Dict[str, Any]):
         logger.info(f"Order Update: {json.dumps(data, indent=4, default=str)}")
@@ -179,10 +189,11 @@ class OrderWidget(Widget):
         self.ord_type = data.get('ord_type', self.ord_type)
         self.price = data.get('price', self.price)
         self.volume = data.get('volume', self.volume)
+        self.state = data.get('state', self.state)
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         total = self.price * self.volume
-        return f"Order: {self.market} | {self.side} | {self.ord_type} | {self.volume:,.0f} x {self.price:,.0f}원 | {total:,.0f}원 | "
+        return f"Order: {self.market} | {self.side} | {self.ord_type} | {self.volume:,.0f} x {self.price:,.0f}원 | {total:,.0f}원 | {self.state}"
 
 class TickerWidget(Widget):
     
@@ -442,11 +453,13 @@ class Dashboard:
             # Filter registry for TickerWidgets
             tickers = sorted([w for w in self.registry.values() if isinstance(w, TickerWidget)], key=lambda x: x.id)
             for widget in tickers:
-                output.append(widget.render())
+                line = widget.render()
+                output.append(f"{line}{"=" * (MAX_WIDTH - len(line))}")
 
             orders = sorted([w for w in self.registry.values() if isinstance(w, OrderWidget)], key=lambda x: x.id)
             for widget in orders:
-                output.append(widget.render())
+                line = widget.render()
+                output.append(f"{line}{"=" * (MAX_WIDTH - len(line))}")
 
         # Logs area
         output.append("")

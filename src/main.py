@@ -429,6 +429,17 @@ class Manager(WebsocketObserver):
             pass
         else:
             pass
+        
+        # Sync Asset Dashboard if order done
+        if state == 'done':
+            # Fetch latest asset info including avg_buy_price
+            asset_info = self.account_manager.get_asset_balance(ticker)
+            if asset_info and asset_info.get('balance'):
+                 self.dashboard.update({'asset': asset_info})
+                 self.dashboard.log(f"Synced Asset for {ticker}: {asset_info['balance']} @ {asset_info['avg_buy_price']}")
+            elif asset_info: # Balance 0 case
+                 self.dashboard.update({'asset': asset_info})
+                 self.dashboard.log(f"Synced Asset for {ticker}: Balance Zero")
 
     def on_my_asset(self, cls, message: dict):
         logger.info(f"Asset Update: {json.dumps(message, indent=4, default=str)}")
@@ -440,6 +451,8 @@ class Manager(WebsocketObserver):
             balance = asset['balance']
             if ticker == "KRW":
                 self.dashboard.update({'asset': asset})
+            else:
+                 self.dashboard.update({'asset': asset})
             self.dashboard.log(f"Asset Update: {ticker.amount(balance)} by myAsset")
             
 
