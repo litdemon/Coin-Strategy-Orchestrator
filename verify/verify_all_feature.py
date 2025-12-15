@@ -68,13 +68,13 @@ class TestTradingScenarios(unittest.TestCase):
 
     def _execute_limit_buy(self, ticker, price, amount_krw):
         # Calculate volume from amount_krw
-        volume = float(amount_krw) / price
-        order = self.manager.account_manager.buy_limit_order(ticker, price, volume)
+        volume = Decimal(str(amount_krw)) / Decimal(str(price))
+        order = self.manager.account_manager.buy_limit_order(ticker, Decimal(str(price)), volume)
         self._process_queue()
         return order
 
     def _execute_limit_sell(self, ticker, price, volume):
-        order = self.manager.account_manager.sell_limit_order(ticker, price, volume)
+        order = self.manager.account_manager.sell_limit_order(ticker, Decimal(str(price)), Decimal(str(volume)))
         self._process_queue()
         return order
 
@@ -123,7 +123,7 @@ class TestTradingScenarios(unittest.TestCase):
         self.assertEqual(len(positions), 1)
         self.assertFalse(positions[0].is_closed)
         # Entry price should be ask_price (50M) because order price >= ask
-        self.assertEqual(positions[0].entry_price, 50000000.0)
+        self.assertEqual(positions[0].entry_price, Decimal("50000000.0"))
 
     def test_B04_insufficient_balance(self):
         """B-04: 잔고 부족 매수"""
@@ -292,10 +292,10 @@ class TestTradingSystem(unittest.TestCase):
         # 1. Buy Command (Limit)
         ticker = "KRW-BTC"
         price = 50000000.0
-        volume = 0.01 # 500,000 KRW
+        volume = Decimal("0.01") # 500,000 KRW
         
         print(f"[1] Placing Buy Limit Order: {ticker} {volume} @ {price}")
-        order = self.manager.account_manager.buy_limit_order(ticker, price, volume)
+        order = self.manager.account_manager.buy_limit_order(ticker, Decimal(str(price)), volume)
         
         # Check 'wait' event
         task = self.consume_event("myOrder", state="wait")
@@ -343,6 +343,12 @@ class TestTradingSystem(unittest.TestCase):
         
         # Process event -> Closes Position
         self.manager.on_task(task["cls"], task["message"])
+        
+        # Verify Position Closed
+        # Refresh position object
+        pos_list = self.manager.position_manager.get_positions(ticker, only_active=False)
+        pos = pos_list[0]
+        self.assertTrue(pos.is_closed, "Position should be closed after sell")
         
         print("[PASS] Full System Flow Verified")
 

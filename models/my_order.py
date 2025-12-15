@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from decimal import Decimal
 from typing import Optional
 
 class MyOrder(BaseModel):
@@ -9,24 +10,24 @@ class MyOrder(BaseModel):
     order_type: str  # "limit", etc.
     state: str  # "wait", "done", "cancel"
     trade_uuid: Optional[str] = None
-    price: float
-    avg_price: float
-    volume: float
-    remaining_volume: float
-    executed_volume: float
+    price: Decimal
+    avg_price: Decimal
+    volume: Decimal
+    remaining_volume: Decimal
+    executed_volume: Decimal
     trades_count: int
-    reserved_fee: float
-    remaining_fee: float
-    paid_fee: float
-    locked: float
-    executed_funds: float
+    reserved_fee: Decimal
+    remaining_fee: Decimal
+    paid_fee: Decimal
+    locked: Decimal
+    executed_funds: Decimal
     time_in_force: Optional[str] = None
-    trade_fee: Optional[float] = None
+    trade_fee: Optional[Decimal] = None
     is_maker: Optional[bool] = None
     identifier: Optional[str] = None
     smp_type: Optional[str] = None
-    prevented_volume: float
-    prevented_locked: float
+    prevented_volume: Decimal
+    prevented_locked: Decimal
     trade_timestamp: Optional[int] = None
     order_timestamp: int
     timestamp: int

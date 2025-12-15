@@ -1,18 +1,20 @@
-import sqlite3
-import json
-import sys
+
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import json
+import time
+import logging
+import sqlite3
+import pyupbit
+from decimal import Decimal
 
 # Add project root to sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 from typing import Optional, List, Dict, Any, Callable
 from models.position import PositionBase
 from strategy.base import Signal
-import pyupbit
-import logging
-import time
 from tools.db_interface import DBInterface
 
 logger = logging.getLogger(__name__)
@@ -62,8 +64,12 @@ class PositionManager:
         # Ensure we have price and volume. 
         # Upbit socket might send 'price' or 'trade_price'? 
         # main.py extracts 'price' and 'volume'.
-        price = order_info.get('price', 0.0)
-        volume = order_info.get('volume', 0.0)
+        raw_price = order_info.get('price', 0.0)
+        raw_volume = order_info.get('volume', 0.0)
+        
+        
+        price = Decimal(str(raw_price))
+        volume = Decimal(str(raw_volume))
 
         if state != 'done':
             return
@@ -89,4 +95,6 @@ class PositionManager:
                 
                 # Update local cache
                 self.positions[pos.id] = pos
-                logger.info(f"[PositionManager] Closed Position {pos.id} for {ticker}")
+                logger.info(f"[PositionManager] Closed Position {pos.id} for {ticker} at {price}")
+            else:
+                logger.warning(f"[PositionManager] Sell Order {state} but no active position for {ticker}")

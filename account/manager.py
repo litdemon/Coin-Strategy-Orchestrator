@@ -31,19 +31,19 @@ class AccountBase(ABC):
         pass
 
     @abstractmethod
-    def buy_limit_order(self, ticker: str, price: float, volume: float) -> Any:
+    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> Any:
         pass
     
     @abstractmethod
-    def buy_market_order(self, ticker: str, volume: float) -> Any:
+    def buy_market_order(self, ticker: str, volume: Decimal) -> Any:
         pass
     
     @abstractmethod
-    def sell_market_order(self, ticker: str, volume: float) -> Any:
+    def sell_market_order(self, ticker: str, volume: Decimal) -> Any:
         pass
 
     @abstractmethod
-    def sell_limit_order(self, ticker: str, price: float, volume: float) -> Any:
+    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> Any:
         pass
     
     @abstractmethod
@@ -80,17 +80,17 @@ class AccountUpbitManager(AccountBase):
     def add_balance(self, ticker: str, amount: Any, avg_buy_price: Decimal = Decimal(0)):
         return Decimal(0)
     
-    def buy_limit_order(self, ticker: str, price: float, volume: float) -> Any:
-        return self.upbit.buy_limit_order(ticker, price, volume)
+    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> Any:
+        return self.upbit.buy_limit_order(ticker, float(price), float(volume))
     
-    def buy_market_order(self, ticker: str, volume: float) -> Any:
-        return self.upbit.buy_market_order(ticker, volume)
+    def buy_market_order(self, ticker: str, volume: Decimal) -> Any:
+        return self.upbit.buy_market_order(ticker, float(volume))
     
-    def sell_market_order(self, ticker: str, volume: float) -> Any:
-        return self.upbit.sell_market_order(ticker, volume)
+    def sell_market_order(self, ticker: str, volume: Decimal) -> Any:
+        return self.upbit.sell_market_order(ticker, float(volume))
     
-    def sell_limit_order(self, ticker: str, price: float, volume: float) -> Any:
-        return self.upbit.sell_limit_order(ticker, price, volume)
+    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> Any:
+        return self.upbit.sell_limit_order(ticker, float(price), float(volume))
     
     def get_order(self, ticker: str, state: str = "wait") -> List[Any]:
         return self.upbit.get_order(ticker, state)
@@ -129,25 +129,25 @@ class AccountDBManager(AccountBase):
     def get_orderbook(self, ticker: str) -> List[dict]:
         return pyupbit.get_orderbook(ticker)
 
-    def sell_limit_order(self, ticker: str, price: float, volume: float) -> OrderDTO:
+    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> OrderDTO:
         return self.manager.create_order(
             market=ticker,
             side="ask",
             ord_type="limit",
-            price=Decimal(str(price)),
-            volume=Decimal(str(volume))
+            price=price,
+            volume=volume
         )
     
-    def buy_limit_order(self, ticker: str, price: float, volume: float) -> OrderDTO:
+    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> OrderDTO:
         return self.manager.create_order(
             market=ticker,
             side="bid",
             ord_type="limit",
-            price=Decimal(str(price)),
-            volume=Decimal(str(volume))
+            price=price,
+            volume=volume
         )
     
-    def buy_market_order(self, ticker: str, volume: float) -> OrderDTO:
+    def buy_market_order(self, ticker: str, volume: Decimal) -> OrderDTO:
         # For validation, we need an estimated price.
         # Fetch current price from pyupbit (or self.get_current_price)
         current_price = self.get_current_price(ticker) or Decimal("0")
@@ -157,16 +157,16 @@ class AccountDBManager(AccountBase):
             side="bid",
             ord_type="market",
             price=Decimal(str(current_price)), # Pass estimated price for locking
-            volume=Decimal(str(volume)) 
+            volume=volume 
         )
 
-    def sell_market_order(self, ticker: str, volume: float) -> OrderDTO:
+    def sell_market_order(self, ticker: str, volume: Decimal) -> OrderDTO:
         return self.manager.create_order(
             market=ticker,
             side="ask",
             ord_type="market",
             price=Decimal("0"),
-            volume=Decimal(str(volume))
+            volume=volume
         )
     
     def get_order(self, ticker: str, state: str = "wait") -> List[OrderDTO]:

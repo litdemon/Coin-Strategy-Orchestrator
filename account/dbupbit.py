@@ -95,8 +95,8 @@ class DBUpbit:
             # Create update message
             item = AssetItem(
                 currency=currency,
-                balance=float(new_asset.balance), # AssetItem might expect float
-                locked=float(new_asset.locked)
+                balance=new_asset.balance, 
+                locked=new_asset.locked
             )
             my_asset_msg = MyAsset(assets=[item])
             msg_dict = my_asset_msg.model_dump()
@@ -129,8 +129,8 @@ class DBUpbit:
             
             item = AssetItem(
                 currency=currency, 
-                balance=float(new_asset.balance), 
-                locked=float(new_asset.locked)
+                balance=new_asset.balance, 
+                locked=new_asset.locked
             )
             my_asset_msg = MyAsset(assets=[item])
             msg_dict = my_asset_msg.model_dump()
@@ -155,8 +155,8 @@ class DBUpbit:
             # Emit update
             item = AssetItem(
                 currency=ticker_currency,
-                balance=float(new_asset.balance),
-                locked=float(new_asset.locked)
+                balance=new_asset.balance,
+                locked=new_asset.locked
             )
             self.callback(self, MyAsset(assets=[item]).model_dump())
 
@@ -176,8 +176,8 @@ class DBUpbit:
             
             item = AssetItem(
                 currency=ticker_currency,
-                balance=float(new_asset.balance),
-                locked=float(new_asset.locked)
+                balance=new_asset.balance,
+                locked=new_asset.locked
             )
             self.callback(self, MyAsset(assets=[item]).model_dump())
 
@@ -377,7 +377,7 @@ class DBUpbit:
                         self.asset_repo.save(new_asset)
                         
                         # Emit
-                        item = AssetItem(currency=currency, balance=float(new_asset.balance), locked=float(new_asset.locked))
+                        item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked)
                         self.callback(self, MyAsset(assets=[item]).model_dump())
 
             else:
@@ -397,7 +397,7 @@ class DBUpbit:
                         new_asset = asset.model_copy(update={"locked": new_locked})
                         self.asset_repo.save(new_asset)
                         
-                        item = AssetItem(currency=currency, balance=float(new_asset.balance), locked=float(new_asset.locked))
+                        item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked)
                         self.callback(self, MyAsset(assets=[item]).model_dump())
                         
                 # 2. Add KRW

@@ -378,7 +378,7 @@ class Manager(WebsocketObserver):
             # 새로운 position 생성
             self.position_manager.on_order_fill(message)
         elif ask_bid == "ask" and state == "done":
-            pass
+            self.position_manager.on_order_fill(message)
         elif ask_bid == "cancel":
             pass
         else:
