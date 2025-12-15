@@ -106,13 +106,10 @@ class DBUpbit:
             
             return msg_dict
 
-    def sub_balance(self, ticker: str, amount: Any) -> dict:
+    def sub_balance(self, ticker: str, amount: Decimal) -> dict:
         """Subtract balance (withdraw or sell start)."""
         ticker_obj = Ticker(ticker)
         
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-            
         currency = ticker_obj.currency
         
         with self.lock:
@@ -125,6 +122,9 @@ class DBUpbit:
             
             new_balance = asset.balance - amount
             new_asset = asset.model_copy(update={"balance": new_balance})
+            if new_balance == 0:
+                new_asset = asset.model_copy(update={"balance": 0, "avg_buy_price": Decimal("0")})
+
             self.asset_repo.save(new_asset)
             
             item = AssetItem(
@@ -372,12 +372,18 @@ class DBUpbit:
                         # So new_balance = asset.balance + excess
                         
                         new_balance = asset.balance + excess
-                        
-                        new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked})
+                        if new_balance <= 0: 
+                            new_balance = Decimal("0")
+                            new_locked = Decimal("0")
+                            avg_price = Decimal("0")
+                        else:
+                            avg_price = asset.avg_price
+                            
+                        new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked, "avg_price": avg_price})
                         self.asset_repo.save(new_asset)
                         
                         # Emit
-                        item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked)
+                        item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked, avg_price=new_asset.avg_price)
                         self.callback(self, MyAsset(assets=[item]).model_dump())
 
             else:

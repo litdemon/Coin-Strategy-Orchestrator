@@ -241,6 +241,17 @@ class StrategyManager:
             self.repo.save(dto)
             logger.info(f"Stopped strategy {strategy_id}")
 
+    def archive_strategy(self, strategy_id: str):
+        """Archive a strategy (move to archive table and remove from memory)."""
+        if strategy_id in self.strategies:
+            del self.strategies[strategy_id]
+        
+        try:
+            self.repo.archive(strategy_id)
+            logger.info(f"Archived strategy {strategy_id}")
+        except Exception as e:
+            logger.error(f"Failed to archive strategy {strategy_id}: {e}")
+
     def load_strategies_by_position_id(self, position_id: str) -> List[str]:
         """
         Check active strategies and return list of strategy types linked to the position_id.

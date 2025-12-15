@@ -98,3 +98,17 @@ class PositionManager:
                 logger.info(f"[PositionManager] Closed Position {pos.id} for {ticker} at {price}")
             else:
                 logger.warning(f"[PositionManager] Sell Order {state} but no active position for {ticker}")
+
+    def archive_position(self, position_id: str):
+        """Archive a position and remove from memory."""
+        pos = self.positions.get(position_id)
+        if pos:
+            try:
+                # DBInterface.archive() moves to archive table and deletes from main
+                pos.archive(self.db_path) 
+                del self.positions[position_id]
+                logger.info(f"[PositionManager] Archived Position {position_id}")
+            except Exception as e:
+                logger.error(f"[PositionManager] Failed to archive position {position_id}: {e}")
+        else:
+            logger.warning(f"[PositionManager] Archive requested for unknown position {position_id}")

@@ -202,6 +202,8 @@ class Manager(WebsocketObserver):
             })
         except json.JSONDecodeError:
             self.dashboard.log(f"Invalid JSON from {topic}")
+            logger.error(f"Invalid message: {payload}")
+            logger.error(traceback.format_exc())
 
     def on_ws_message(self, cls, message: dict):
         self.task_queue.put({"cls": cls, "message": message})   
@@ -333,7 +335,9 @@ class Manager(WebsocketObserver):
                     volume = Decimal(str(won)) / Decimal(str(price))
                 
                 # Check for "Sell All" (Volume = -1)
+                is_sell_all = False
                 if volume is not None and float(volume) == -1:
+                    is_sell_all = True
                     balance = self.account_manager.get_balance(ticker)
                     self.dashboard.log(f"Sell All requested. Avail Balance: {balance}")
                     volume = balance
@@ -345,6 +349,31 @@ class Manager(WebsocketObserver):
                     self.account_manager.sell_market_order(ticker, float(volume))
                 else:
                     self.account_manager.sell_limit_order(ticker, float(price), float(volume))
+                
+                if is_sell_all and self.virtual:
+                    # Clean up Virtual Account Artifacts
+                    self.dashboard.log(f"Cleaning up artifacts for {ticker}...")
+                    
+                    # 1. Archive Positions
+                    positions = self.position_manager.get_positions(ticker)
+                    for pos in positions:
+                        self.position_manager.archive_position(pos.id)
+                        self.dashboard.log(f"Archived Position: {pos.id}")
+                        
+                    # 2. Archive Strategies
+                    # Find strategies for this ticker
+                    # StrategyManager doesn't have get_strategies_by_ticker method directly exposed cleanly?
+                    # iterating self.strategy_manager.strategies
+                    to_archive = []
+                    for sid, strategy in self.strategy_manager.strategies.items():
+                        if strategy.context.ticker == ticker:
+                            to_archive.append(sid)
+                    
+                    for sid in to_archive:
+                        self.strategy_manager.archive_strategy(sid)
+                        self.dashboard.log(f"Archived Strategy: {sid}")
+                        
+                    self.dashboard.log(f"Cleanup complete for {ticker}")
 
             elif action == "cancel":
                 uuid = data.get("uuid")
@@ -366,8 +395,8 @@ class Manager(WebsocketObserver):
         ticker = message['code']
         ask_bid = message['ask_bid']
         state = message['state']
-        entry_price = message.get('price', 0)
-        volume = message.get('volume', 0)
+        entry_price = Decimal(message.get('price', 0))
+        volume = Decimal(message.get('volume', 0))
         
         krw_volume = volume * entry_price
 
