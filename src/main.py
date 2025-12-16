@@ -4,35 +4,38 @@ import logging
 import pyupbit
 import sys
 import json
+import traceback
 from decimal import Decimal
-
-# Messaging
-from messaging.factory import MessagingFactory
-from messaging.interface import MessagingClient
 
 # Add project root to sys.path if not present
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from typing import List, Tuple
+from typing import List, Tuple, Any
 from dotenv import load_dotenv
-from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 
 import pyupbit
-
-# Use Position instead of base Position
-from src.position_manager import Position, PositionManager
-from src.stratege_manager import StrategyFactory
+from queue import Queue
 
 # Import models
+# Messaging
+from messaging.factory import MessagingFactory
+from messaging.interface import MessagingClient
 from models.trade import Trade
 from models.orderInfo import OrderInfo
 from models.my_asset import MyAsset
-from strategy.base import SignalType, Signal
 from tools.ticker import Ticker
 from tools.converter import Decimal2float
 from tools.counter import Counter
-from account.account import Account
-from queue import Queue
+from tools.currency_print import Won
+from account.manager import AccountDBManager, AccountUpbitManager
+from src.dashboard import Dashboard
+from src.position_manager import Position, PositionManager
+from src.current_price import CurrentPrice
+from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
+from strategy.manager import StrategyManager
+from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig
+from strategy.models import StrategyContext
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -43,31 +46,56 @@ UPBIT_SECRET_KEY = os.getenv("UPBIT_SECRET_KEY")
 
 DB_PATH = "account.db"
 
-from src.dashboard import Dashboard
-from src.current_price import CurrentPrice
-from account.account import AccountUpbit, Account
-
-
 class Manager(WebsocketObserver):
     def __init__(self, virtual: bool = False):
-        self.dashboard = Dashboard() # Initialize Dashboard
 
-        if virtual:
-            self.account = Account(callback=self.on_ws_message)
-        else:
-            self.account = AccountUpbit(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
         self.task_queue = Queue()
         self.counter = Counter()
+        self.virtual = virtual
 
-    def init(self):
-        balances = self.account.get_balances()
-        tickers = [ Ticker(asset.get("currency")) for asset in balances if asset.get("currency") != "KRW" ]
+    def init(self, config: dict = None):
 
-        self.upbit_websocket = UpbitWebSocket(codes=[ticker.ticker for ticker in tickers], observer=self)
-        self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
+        self.dashboard = Dashboard() # Initialize Dashboard
+
+        if self.virtual:
+            account_config = config.get("account", {}) if config else {}
+            self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config)
+            self.upbit_asset = None
+            
+            # Initial Funding for Virtual Account
+            initial_balance = 0
+            if config and "account" in config and "initial_balance" in config["account"]:
+                initial_balance = config["account"]["initial_balance"]
+                
+            if initial_balance > 0:
+                # Check current KRW balance
+                current_balance = self.account_manager.get_balance("KRW")
+                if current_balance == 0:
+                    logger.info(f"Initializing Virtual Account with {initial_balance:,.0f} KRW")
+                    self.dashboard.log(f"Init Virtual Account: {initial_balance:,.0f} KRW")
+                    self.account_manager.manager.add_balance("KRW", Decimal(str(initial_balance)))
+        else:
+            self.account_manager = AccountUpbitManager(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
+            self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
+
+        balances = self.account_manager.get_balances()
+        all_tickers = [ Ticker(asset.get("currency")).ticker for asset in balances if asset.get("currency") != "KRW" ]
+
+        # Also get tickers from active orders (Limit/Market orders waiting for execution)
+        orders = self.account_manager.get_orders()
+        for order in orders :
+            self.dashboard.update({'order': order})
+            t_code = order.get('market', "") or order.get('code', "")
+            ticker = Ticker(t_code)
+            if ticker.ticker not in all_tickers:
+                all_tickers.append(ticker.ticker)
+
+        self.upbit_websocket = UpbitWebSocket(codes=all_tickers, observer=self)
+        
         self.price_ob = CurrentPrice()
         
         # Initialize Messaging System
+        # Default Config
         mqtt_config = {
             "broker_type": "mqtt",
             "mqtt": {
@@ -76,6 +104,11 @@ class Manager(WebsocketObserver):
                 "client_id": f"strategy_manager_{int(time.time())}"
             }
         }
+        
+        # Override with provided config if available
+        if config and "messaging" in config:
+             mqtt_config = config["messaging"]
+             
         self.messaging = MessagingFactory.create_client(mqtt_config)
         if self.messaging.connect():
             self.dashboard.log("Messaging Connected")
@@ -83,42 +116,53 @@ class Manager(WebsocketObserver):
         else:
             self.dashboard.log("Messaging Connection Failed")
 
+        # Initialize Strategy Manager
+        self.strategy_manager = StrategyManager(db_path=DB_PATH, account_manager=self.account_manager)
+
+        # Initialize Position Manager
         self.position_manager = PositionManager(db_path=DB_PATH)
         for balance in balances:
             ticker = Ticker(balance.get("currency"))
-            self.dashboard.update_balance(balance)
+            self.dashboard.update({'asset': balance})
             if ticker.currency == "KRW":
                 continue
 
             # position이 없으면 default position 생성   
-            if self.position_manager.get_positions(ticker.ticker, only_active=True):
-                continue
-            
-            current_price = pyupbit.get_current_price(ticker.ticker)
-            balance = Decimal(balance.get("balance")) * Decimal(0.25)
-            pos = self.position_manager.create_position(
-                                        ticker=ticker.ticker, 
-                                        entry_price=current_price, 
-                                        volume=balance)
-            # position에 strategy 추가
-            # pos.add_strategy(TrailingStopPolicy(0.05))
-            
+            if not self.position_manager.get_positions(ticker.ticker, only_active=True):
+                current_price = pyupbit.get_current_price(ticker.ticker)
+                # 총 balance의 25%를 position으로 사용
+                balance = Decimal(balance.get("balance")) * Decimal(0.25)
+                pos = self.position_manager.create_position(
+                                            ticker=ticker.ticker, 
+                                            entry_price=current_price, 
+                                            volume=balance)
+                
+                # Create Strategy Context & Config
+                context = StrategyContext(
+                    strategy_id=str(uuid.uuid4()),
+                    ticker=ticker.ticker,
+                    budget=balance, 
+                    position_id=pos.id
+                )
+                config = TrailingStopConfig(
+                    entry_price=current_price,
+                    trail_percent=Decimal("0.02") # Default 2% trailing stop
+                )
+                
+                strategy = TrailingStopStrategy(context=context, config=config)
+                self.strategy_manager.add_strategy(strategy)
 
         # Log loaded positions
         for pos in self.position_manager.positions.values():
             self.dashboard.log(f"Loaded Position: {pos.ticker:<10} {pos.entry_price:<10,.0f} {pos.volume * pos.entry_price:,.0f}")
-        
-        # Update dashboard with loaded positions
-        loaded_tickers = set(pos.ticker for pos in self.position_manager.positions.values())
-        for ticker in loaded_tickers:
-            self._update_positions_dashboard(ticker)
-        
+            self.dashboard.update({'position': pos.model_dump()})
         
 
     def run(self):
         self.dashboard.start() # Start Dashboard
         self.upbit_websocket.start()
-        self.upbit_asset.start()
+        if self.upbit_asset:
+            self.upbit_asset.start()
 
         logger.info("Manager started")
         is_stop = False
@@ -128,11 +172,15 @@ class Manager(WebsocketObserver):
                 is_stop = self.on_task(**task)
             except Exception as e:
                 logger.error(f"Error processing task: {e}")
+                # traceback
+                
+                logger.error(traceback.format_exc())
         logger.info("Task queue is empty")
 
     def stop(self):
         self.upbit_websocket.stop()
-        self.upbit_asset.stop()
+        if self.upbit_asset:
+            self.upbit_asset.stop()
         if self.messaging:
             self.messaging.disconnect()
         self.dashboard.stop()
@@ -158,6 +206,8 @@ class Manager(WebsocketObserver):
             })
         except json.JSONDecodeError:
             self.dashboard.log(f"Invalid JSON from {topic}")
+            logger.error(f"Invalid message: {payload}")
+            logger.error(traceback.format_exc())
 
     def on_ws_message(self, cls, message: dict):
         self.task_queue.put({"cls": cls, "message": message})   
@@ -175,15 +225,21 @@ class Manager(WebsocketObserver):
         if isinstance(cls, UpbitWebSocket):
 
             if message["type"] == "ticker":
-                self.price_ob.update(message['code'], message['trade_price'])
-                if self.price_ob.is_updated(message['code']):
+                market = message['code']
+                price = message['trade_price']
+                self.price_ob.update(market, price)
+                if self.price_ob.is_updated(market):
                     self.on_ticker(message)
+
             elif message["type"] == "orderbook":
                 self.on_orderbook(message)
             elif message["type"] == "trade":
-                self.price_ob.update(message['code'], message['trade_price'])
-                if self.price_ob.is_updated(message['code']):
+                market = message['code']
+                price = message['trade_price']
+                self.price_ob.update(market, price)
+                if self.price_ob.is_updated(market):
                     self.on_trade(message)
+                    
             else:
                 raise Exception(f"Unknown message type: {message['type']} from {cls}")
         elif isinstance(cls, UpbitWebSocketPrivate) or is_virtual_manager:
@@ -226,45 +282,161 @@ class Manager(WebsocketObserver):
 
             elif action == "account":
                 # Reply with account balances
-                balances = self.account.get_balances()
+                balances = self.account_manager.get_balances()
                 # Convert Decimals to serializable format
-                serializable_balances = self.Decimal2float(balances)
+                serializable_balances = Decimal2float(balances)
                 self.messaging.publish(f"trading/response/{uuid}/account", serializable_balances)
                 self.dashboard.log(f"Account: {serializable_balances}")
                 
             elif action == "buy":
                 # Implement Buy Logic or delegate
-                ticker = data.get("ticker")
-                volume = data.get("volume")
-                price = data.get("price")
-                won = data.get("won")
+                ticker = Ticker(data.get("ticker"))
+                volume = Decimal(data.get("volume") or Decimal("0"))
+                price = Decimal(data.get("price") or Decimal("0"))
+                won = Decimal(data.get("won") or Decimal("0"))
                 
-                if price is None:
-                     price = self.price_ob.get(ticker)
+                # Dynamic Subscription: If new ticker, subscribe to orderbook/ticker updates
+                if ticker and ticker.ticker not in self.upbit_websocket.codes:
+                    self.dashboard.log(f"Subscribing to new ticker: {ticker.ticker}")
+                    self.upbit_websocket.add_subscription([ticker.ticker])
+                
+                is_market = False
+                if price <= 0:
+                    is_market = True
+                    price = None
+
+                if price is None and not is_market:
+                     price = pyupbit.get_current_price(ticker.ticker)
                      self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
 
-                if won and price:
-                    volume = Decimal(str(won)) / Decimal(str(price))
+                if won > 0 and volume <= 0:
+                    price = Decimal( pyupbit.get_current_price(ticker.ticker) )
+                    fee = Decimal('0.005')
+                    volume = (won - won * fee) / price
                 
-                self.dashboard.log(f"CMD BUY: {ticker} {volume} @ {price}")
-                # TODO: Trigger buy via account/position_manager
+                # Validation: Price and Volume must be positive
+                if volume <= 0:
+                     self.dashboard.log(f"Invalid Buy Volume: {volume}. Must be positive.")
+                     return
+                if price <= 0 and not is_market:
+                     self.dashboard.log(f"Invalid Buy Price: {price}. Must be positive for Limit Order.")
+                     return
+
+                self.dashboard.log(f"CMD BUY: {ticker.ticker} {volume} @ {'Market' if is_market else price}")
+                
+                # Trigger buy via account_manager
+                if is_market:
+                    order = self.account_manager.buy_market_order(ticker.ticker, volume)
+                else:
+                    order = self.account_manager.buy_limit_order(ticker.ticker, price, volume)
+                
+                self.dashboard.log(f"Order Placed: {order}")
                 
             elif action == "sell":
                 # Implement Sell Logic or delegate
-                ticker = data.get("ticker")
-                volume = data.get("volume")
-                price = data.get("price")
-                won = data.get("won")
+                ticker = Ticker(data.get("ticker"))
+                volume = Decimal(data.get("volume") or Decimal("0"))
+                price = Decimal(data.get("price") or Decimal("0"))
+                won = Decimal(data.get("won") or Decimal("0"))
                 
-                if price is None:
-                     price = self.price_ob.get(ticker)
-                     self.dashboard.log(f"Sell Price not specified. Using Current Price: {price}")
+                is_market = False
+                if price <= 0:
+                    is_market = True
+                    price = None
+                
+                if price is None and not is_market:
+                    price = pyupbit.get_current_price(ticker.ticker)
                      
-                if won and price:
-                    volume = Decimal(str(won)) / Decimal(str(price))
+                if won > 0 and volume <= 0:
+                    price = Decimal( pyupbit.get_current_price(ticker.ticker) )
+                    fee = Decimal(0.005)
+                    volume = (won - won * fee) / price
                 
-                self.dashboard.log(f"CMD SELL: {ticker} {volume} @ {price}")
-                 # TODO: Trigger sell via account/position_manager
+                # Check for "Sell All" (Volume = -1)
+                is_sell_all = False
+                if volume is not None and float(volume) == -1:
+                    is_sell_all = True
+                    balance = self.account_manager.get_balance(ticker.ticker)
+                    self.dashboard.log(f"Sell All requested. Avail Balance: {balance}")
+                    volume = balance
+                
+                # Validation: Price and Volume must be positive (except Sell All handled above)
+                if volume is not None and float(volume) <= 0 and not is_sell_all:
+                     self.dashboard.log(f"Invalid Sell Volume: {volume}. Must be positive.")
+                     return
+                if price is not None and float(price) <= 0 and not is_market:
+                     self.dashboard.log(f"Invalid Sell Price: {price}. Must be positive for Limit Order.")
+                     return
+
+                self.dashboard.log(f"CMD SELL: {ticker} {volume} @ {'Market' if is_market else price}")
+                
+                # Trigger sell via account_manager
+                if is_market:
+                    self.account_manager.sell_market_order(ticker.ticker, volume)
+                else:
+                    self.account_manager.sell_limit_order(ticker.ticker, price, volume)
+                
+                if is_sell_all and self.virtual:
+                    # Clean up Virtual Account Artifacts
+                    self.dashboard.log(f"Cleaning up artifacts for {ticker}...")
+                    
+                    # 1. Archive Positions
+                    positions = self.position_manager.get_positions(ticker)
+                    for pos in positions:
+                        self.position_manager.archive_position(pos.id)
+                        self.dashboard.update({'remove': {'id': pos.id}})
+                        self.dashboard.log(f"Archived Position: {pos.id}")
+                        
+                    # 2. Archive Strategies
+                    # Find strategies for this ticker
+                    # StrategyManager doesn't have get_strategies_by_ticker method directly exposed cleanly?
+                    # iterating self.strategy_manager.strategies
+                    to_archive = []
+                    for sid, strategy in self.strategy_manager.strategies.items():
+                        if strategy.context.ticker == ticker:
+                            to_archive.append(sid)
+                    
+                    for sid in to_archive:
+                        self.strategy_manager.archive_strategy(sid)
+                        self.dashboard.log(f"Archived Strategy: {sid}")
+                        
+                    self.dashboard.log(f"Cleanup complete for {ticker}")
+
+            elif action == "cancel":
+                uuid = data.get("uuid")
+                ticker_str = data.get("ticker")
+                
+                if ticker_str:
+                    # Generic Cancel by Ticker
+                    t = Ticker(ticker_str)
+                    self.dashboard.log(f"CMD CANCEL ALL: {t.ticker}")
+                    # Fetch open orders for this ticker
+                    # AccountManager.get_order(ticker) returns list of orders (dict or DTO)
+                    orders = self.account_manager.get_order(t.ticker)
+                    if not orders:
+                         self.dashboard.log(f"No open orders found for {t.ticker}")
+                    
+                    for order in orders:
+                         # Handle Dict vs DTO
+                         oid = order.get('uuid') if isinstance(order, dict) else getattr(order, 'uuid', None)
+                         if oid:
+                             self.account_manager.cancel_order(oid)
+                             self.dashboard.log(f"Cancelled {oid}")
+                
+                elif uuid:
+                    self.dashboard.log(f"CMD CANCEL: {uuid}")
+                    result = self.account_manager.cancel_order(uuid)
+                    if hasattr(result, 'model_dump'):
+                         res = result.model_dump()
+                    elif isinstance(result, dict):
+                         res = result
+                    else:
+                         res = {}
+                         
+                    if result:
+                        self.dashboard.log(f"Order Cancelled: {res.get('market')} {res.get('side')} {res.get('state')} {res.get('locked')}")
+                    else:
+                        self.dashboard.log(f"Order Cancel Failed or Not Found: {uuid}")
                  
             else:
                 self.dashboard.log(f"Unknown Action: {action}")
@@ -277,32 +449,66 @@ class Manager(WebsocketObserver):
         ticker = message['code']
         ask_bid = message['ask_bid']
         state = message['state']
-        entry_price = message.get('price', 0)
-        volume = message.get('volume', 0)
+        entry_price = Decimal(message.get('price', 0))
+        volume = Decimal(message.get('volume', 0))
         
         krw_volume = volume * entry_price
 
-        self.dashboard.log(f"Order detected {ticker}: {ask_bid}:{state}:{entry_price:.0f} {krw_volume:,.0f}won")
+        self.dashboard.log(f"Order🧾 detected {ticker}: {ask_bid}:{state} {Won(entry_price)} {Won(krw_volume)}")
+        self.dashboard.update({'order': message})
         
-        # 새로운 position 생성
-        self.position_manager.on_order_fill(message)
-
         if ask_bid == "bid" and state == "done":
-            self._update_positions_dashboard(ticker)
+            # 새로운 position 생성
+            pos = self.position_manager.on_order_fill(message)
+            if pos:
+                self.dashboard.update({'position': pos.model_dump()})
+                self.dashboard.log(f"New Position: {pos.ticker} ({pos.id[:8]})")
+                
+        elif ask_bid == "ask" and state == "done":
+            pos = self.position_manager.on_order_fill(message)
+            if pos:
+                self.dashboard.update({'position': pos.model_dump()})
+                self.dashboard.log(f"Position Closed: {pos.ticker} ({pos.id[:8]})")
+                
         elif ask_bid == "cancel":
             pass
         else:
             pass
+        
+        # Sync Asset Dashboard if order done
+        if state == 'done':
+            # Fetch latest asset info including avg_buy_price
+            asset_info = self.account_manager.get_asset_balance(ticker)
+            if asset_info and asset_info.get('balance'):
+                 self.dashboard.update({'asset': asset_info})
+                 self.dashboard.log(f"Synced Asset for {ticker}: {asset_info['balance']} @ {asset_info['avg_buy_price']}")
+            elif asset_info: # Balance 0 case
+                 self.dashboard.update({'asset': asset_info})
+                 self.dashboard.log(f"Synced Asset for {ticker}: Balance Zero")
+                 
+                 # Cleanup Logic: If balance is 0, archive all positions and remove from dashboard
+                 balance = Decimal(str(asset_info.get('balance', 0)))
+                 if balance <= 0:
+                      self.dashboard.log(f"Balance Zero for {ticker}. Cleaning up all positions.")
+                      positions = self.position_manager.get_positions(ticker, only_active=False)
+                      for pos in positions:
+                           self.position_manager.archive_position(pos.id)
+                           self.dashboard.update({'remove': {'id': pos.id}})
+                           self.dashboard.log(f"Archived & Removed Position: {pos.id}")
 
     def on_my_asset(self, cls, message: dict):
+        logger.info(f"Asset Update: {json.dumps(message, indent=4, default=str)}")
+
+        # Order 정보를 보고 asset을 업데이트 할 예정
         assets = message['assets']
         for asset in assets:
-            ticker = asset['currency']
+            ticker = Ticker(asset['currency'])
             balance = asset['balance']
-            # self.balance is undefined in Manager. Update dashboard instead.
-            # Assuming update_balance takes the asset dict.
-            self.dashboard.update_balance(asset)
-            self.dashboard.log(f"Asset Update: {ticker}: {balance:.4f}")
+            if ticker == "KRW":
+                self.dashboard.update({'asset': asset})
+            else:
+                 self.dashboard.update({'asset': asset})
+            self.dashboard.log(f"Asset Update: {ticker.amount(balance)} by myAsset")
             
 
     def on_ticker(self, message: dict):
@@ -313,13 +519,16 @@ class Manager(WebsocketObserver):
             return
         
         # Update Dashboard Ticker Info
-        self.dashboard.update_ticker(message=message)
+        self.dashboard.update({'ticker': message})
+        # TODO: Strategy Manager
+        # if self.strategy_manager:
+        #     self.strategy_manager.on_ticker(ticker, current_price)
 
     def on_orderbook(self, message: dict):
         tiker = Ticker(message.get('code', ''))
         orderbook = message.get('orderbook_units', [])
 
-        self.account.check_order(tiker.ticker, orderbook)
+        self.account_manager.check_order(tiker.ticker, orderbook)
 
     def on_trade(self, message: dict):
         pass
@@ -330,36 +539,38 @@ class Manager(WebsocketObserver):
     def on_asset(self, message: dict):
         pass
 
-    def on_signal(self, position: Position, signals: List[Signal]):
-        for signal in signals:
-            self.dashboard.log(f"SIGNAL {position.ticker}: {signal.type.value} - {signal.reason}")
-
-    def _update_positions_dashboard(self, ticker: str):
-        """Update dashboard with current positions for the ticker."""
-        positions = self.position_manager.get_positions(ticker, only_active=True)
-        pos_data = []
-        for p in positions:
-            pos_data.append({
-                'id': p.id,
-                'entry_price': p.entry_price,
-                'volume': p.volume,
-                'strategies': [] # TODO: Add strategies when available in Position model
-            })
-        self.dashboard.update_positions(ticker, pos_data)
+    def on_signal(self, position: Position=None, signals: Any=None):
+        pass
 
     # -- Main -------------------------------------
 if __name__ == "__main__":
     time_format = "%m-%d %H:%M:%S"
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
-    logging.basicConfig(level=logging.DEBUG, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
+    logging.basicConfig(level=logging.INFO, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
 
     manager = Manager(virtual=True)
-    manager.init()
+    
+    # Default Configuration
+    config = {
+        "messaging": {
+            "broker_type": "mqtt",
+            "mqtt": {
+                "host": "mqtt.toybox7.net",
+                "port": 1883,
+                "client_id": f"strategy_manager_{int(time.time())}"
+            }
+        },
+        "account": {
+            "initial_balance": 10000000,
+            "fees": {
+                "KRW": 0.0005  # 0.05%
+            }
+        }
+    }
+    
+    manager.init(config=config)
     try:
         while True:
             manager.run()
     except KeyboardInterrupt:
         manager.stop()
-
-
-    

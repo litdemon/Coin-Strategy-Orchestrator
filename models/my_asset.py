@@ -1,12 +1,13 @@
 from pydantic import BaseModel, Field 
 from typing import List, Optional
+from decimal import Decimal
 from uuid import uuid4
 import time
 
 class AssetItem(BaseModel):
     currency: str
-    balance: float
-    locked: float
+    balance: Decimal
+    locked: Decimal
 
 class MyAsset(BaseModel):
     type: str = "myAsset"

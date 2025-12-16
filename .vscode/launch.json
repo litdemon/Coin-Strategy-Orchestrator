@@ -5,17 +5,21 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "app.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "app.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--mode",
+                "virtual"
+            ]
+        },
+        {
             "name": "main.py",
             "type": "debugpy",
             "request": "launch",
             "program": "src/main.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "verify_upbit_websocket.py",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "verify/verify_upbit_websocket.py",
             "console": "integratedTerminal"
         }
     ]
