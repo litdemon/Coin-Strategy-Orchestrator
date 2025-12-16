@@ -56,7 +56,7 @@ def send_command(action, **kwargs):
             else:
                 print(f"📥 Response: {payload}")
             self.responses.append(payload)
-        
+         
         def get_response(self):
             return self.responses
         
