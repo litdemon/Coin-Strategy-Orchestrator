@@ -31,13 +31,19 @@ class Spinner:
     def __init__(self):
         self.spins = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
         self.index = 0
+        self._count = 0
 
     def next(self):
         self.index = (self.index + 1) % len(self.spins)
+        self._count += 1
         return self.spins[self.index]
     
+    def count(self):
+        return self._count
+
     def __call__(self):
         return self.spins[self.index]
+
 
 class Widget(ABC):
 
@@ -311,6 +317,12 @@ class Dashboard:
         self.lock = threading.Lock()
         self._thread = None
         self.spinner = Spinner()
+        self.orderbook_spinner = Spinner()
+        self.ticker_spinner = Spinner()
+        self.position_spinner = Spinner()
+        self.strategy_spinner = Spinner()
+        self.order_spinner = Spinner()
+        
 
     def start(self):
         self.running = True
@@ -353,26 +365,44 @@ class Dashboard:
                 target_id = Ticker(payload.get('code')).ticker
                 widget_type = 'ticker'
             elif 'log' in mtype:
-                # Log handles its own update structure usually, or just string?
-                # LogWidget.update expects dict with 'message'.
-                # payload is {'message': '...'} usually from self.log()
                 self.log_widget.update(payload)
                 return
             elif 'asset' in mtype:
                 target_id = Ticker(payload.get('currency')).ticker
                 widget_type = 'ticker'
             elif 'orderbook' in mtype:
+                self.orderbook_spinner.next()
                 target_id = Ticker(payload.get('code')).ticker
                 widget_type = 'ticker'
             elif 'position' in mtype:
+                self.position_spinner.next()
                 target_id = payload.get('id')
                 widget_type = 'position'
             elif 'strategy' in mtype:
+                self.strategy_spinner.next()
                 target_id = payload.get('strategy_id')
                 widget_type = 'strategy'
             elif 'order' in mtype:
+                self.order_spinner.next()
                 target_id = payload.get('uuid')
                 widget_type = 'order'
+            elif 'remove' in mtype:
+                target_id = payload.get('id')
+                if target_id and target_id in self.registry:
+                    self.log(f"Removing widget: {target_id}")
+                    # If it has a parent, remove from parent's children
+                    widget = self.registry[target_id]
+                    if widget.parent and hasattr(widget.parent, 'children'):
+                         # Assuming parent has children dict or list
+                         # TickerWidget has self.children = {} (OrderedDict or similar)
+                         if target_id in widget.parent.children:
+                             del widget.parent.children[target_id]
+                             
+                             # Check if parent (Ticker) needs to be removed now that child is gone?
+                             self._check_and_remove_ticker(widget.parent.id)
+
+                    del self.registry[target_id]
+                return
             else:
                 self.log(f"Unknown message type: {data}")
                 return
@@ -596,7 +626,8 @@ class Dashboard:
         
         output = []
         output.append("=" * MAX_WIDTH)
-        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner.next()}")
+        info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.position_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
+        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner.next()} {info}")
         output.append("=" * MAX_WIDTH)
         
         with self.lock:

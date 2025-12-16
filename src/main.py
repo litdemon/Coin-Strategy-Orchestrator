@@ -295,9 +295,9 @@ class Manager(WebsocketObserver):
                 won = Decimal(data.get("won") or Decimal("0"))
                 
                 # Dynamic Subscription: If new ticker, subscribe to orderbook/ticker updates
-                if ticker and ticker not in self.upbit_websocket.codes:
-                    self.dashboard.log(f"Subscribing to new ticker: {ticker}")
-                    self.upbit_websocket.add_subscription([ticker])
+                if ticker and ticker.ticker not in self.upbit_websocket.codes:
+                    self.dashboard.log(f"Subscribing to new ticker: {ticker.ticker}")
+                    self.upbit_websocket.add_subscription([ticker.ticker])
                 
                 is_market = False
                 if price <= 0:
@@ -305,12 +305,13 @@ class Manager(WebsocketObserver):
                     price = None
 
                 if price is None and not is_market:
-                     price = pyupbit.get_current_price(ticker)
+                     price = pyupbit.get_current_price(ticker.ticker)
                      self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
 
                 if won > 0 and volume <= 0:
-                    price = Decimal( pyupbit.get_current_price(ticker) )
-                    volume = (won - won * self.config.fee) / price
+                    price = Decimal( pyupbit.get_current_price(ticker.ticker) )
+                    fee = Decimal('0.005')
+                    volume = (won - won * fee) / price
                 
                 # Validation: Price and Volume must be positive
                 if volume <= 0:
@@ -320,39 +321,41 @@ class Manager(WebsocketObserver):
                      self.dashboard.log(f"Invalid Buy Price: {price}. Must be positive for Limit Order.")
                      return
 
-                self.dashboard.log(f"CMD BUY: {ticker} {volume} @ {'Market' if is_market else price}")
+                self.dashboard.log(f"CMD BUY: {ticker.ticker} {volume} @ {'Market' if is_market else price}")
                 
                 # Trigger buy via account_manager
                 if is_market:
-                    order = self.account_manager.buy_market_order(ticker, volume)
+                    order = self.account_manager.buy_market_order(ticker.ticker, volume)
                 else:
-                    order = self.account_manager.buy_limit_order(ticker, price, volume)
+                    order = self.account_manager.buy_limit_order(ticker.ticker, price, volume)
                 
                 self.dashboard.log(f"Order Placed: {order}")
                 
             elif action == "sell":
                 # Implement Sell Logic or delegate
                 ticker = Ticker(data.get("ticker"))
-                volume = Decimal(data.get("volume"))
-                price = Decimal(data.get("price"))
-                won = Decimal(data.get("won"))
+                volume = Decimal(data.get("volume") or Decimal("0"))
+                price = Decimal(data.get("price") or Decimal("0"))
+                won = Decimal(data.get("won") or Decimal("0"))
                 
                 is_market = False
-                if price is not None and float(price) <= 0:
+                if price <= 0:
                     is_market = True
                     price = None
                 
                 if price is None and not is_market:
-                    price = pyupbit.get_current_price(ticker)
+                    price = pyupbit.get_current_price(ticker.ticker)
                      
-                if won and price:
-                    volume = Decimal(str(won)) / Decimal(str(price))
+                if won > 0 and volume <= 0:
+                    price = Decimal( pyupbit.get_current_price(ticker.ticker) )
+                    fee = Decimal(0.005)
+                    volume = (won - won * fee) / price
                 
                 # Check for "Sell All" (Volume = -1)
                 is_sell_all = False
                 if volume is not None and float(volume) == -1:
                     is_sell_all = True
-                    balance = self.account_manager.get_balance(ticker)
+                    balance = self.account_manager.get_balance(ticker.ticker)
                     self.dashboard.log(f"Sell All requested. Avail Balance: {balance}")
                     volume = balance
                 
@@ -368,9 +371,9 @@ class Manager(WebsocketObserver):
                 
                 # Trigger sell via account_manager
                 if is_market:
-                    self.account_manager.sell_market_order(ticker, volume)
+                    self.account_manager.sell_market_order(ticker.ticker, volume)
                 else:
-                    self.account_manager.sell_limit_order(ticker, price, volume)
+                    self.account_manager.sell_limit_order(ticker.ticker, price, volume)
                 
                 if is_sell_all and self.virtual:
                     # Clean up Virtual Account Artifacts
@@ -380,6 +383,7 @@ class Manager(WebsocketObserver):
                     positions = self.position_manager.get_positions(ticker)
                     for pos in positions:
                         self.position_manager.archive_position(pos.id)
+                        self.dashboard.update({'remove': {'id': pos.id}})
                         self.dashboard.log(f"Archived Position: {pos.id}")
                         
                     # 2. Archive Strategies
@@ -453,6 +457,16 @@ class Manager(WebsocketObserver):
             elif asset_info: # Balance 0 case
                  self.dashboard.update({'asset': asset_info})
                  self.dashboard.log(f"Synced Asset for {ticker}: Balance Zero")
+                 
+                 # Cleanup Logic: If balance is 0, archive all positions and remove from dashboard
+                 balance = Decimal(str(asset_info.get('balance', 0)))
+                 if balance <= 0:
+                      self.dashboard.log(f"Balance Zero for {ticker}. Cleaning up all positions.")
+                      positions = self.position_manager.get_positions(ticker, only_active=False)
+                      for pos in positions:
+                           self.position_manager.archive_position(pos.id)
+                           self.dashboard.update({'remove': {'id': pos.id}})
+                           self.dashboard.log(f"Archived & Removed Position: {pos.id}")
 
     def on_my_asset(self, cls, message: dict):
         logger.info(f"Asset Update: {json.dumps(message, indent=4, default=str)}")
