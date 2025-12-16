@@ -85,7 +85,8 @@ class Manager(WebsocketObserver):
         orders = self.account_manager.get_orders()
         for order in orders :
             self.dashboard.update({'order': order})
-            ticker = Ticker(order.get('market', "") or order.get('code', ""))
+            t_code = order.get('market', "") or order.get('code', "")
+            ticker = Ticker(t_code)
             if ticker.ticker not in all_tickers:
                 all_tickers.append(ticker.ticker)
 
@@ -403,12 +404,39 @@ class Manager(WebsocketObserver):
 
             elif action == "cancel":
                 uuid = data.get("uuid")
-                self.dashboard.log(f"CMD CANCEL: {uuid}")
-                result = self.account_manager.cancel_order(uuid)
-                if result:
-                    self.dashboard.log(f"Order Cancelled: {result.get('market')} {result.get('side')} {result.get('state')} {result.get('locked')}")
-                else:
-                     self.dashboard.log(f"Order Cancel Failed or Not Found: {uuid}")
+                ticker_str = data.get("ticker")
+                
+                if ticker_str:
+                    # Generic Cancel by Ticker
+                    t = Ticker(ticker_str)
+                    self.dashboard.log(f"CMD CANCEL ALL: {t.ticker}")
+                    # Fetch open orders for this ticker
+                    # AccountManager.get_order(ticker) returns list of orders (dict or DTO)
+                    orders = self.account_manager.get_order(t.ticker)
+                    if not orders:
+                         self.dashboard.log(f"No open orders found for {t.ticker}")
+                    
+                    for order in orders:
+                         # Handle Dict vs DTO
+                         oid = order.get('uuid') if isinstance(order, dict) else getattr(order, 'uuid', None)
+                         if oid:
+                             self.account_manager.cancel_order(oid)
+                             self.dashboard.log(f"Cancelled {oid}")
+                
+                elif uuid:
+                    self.dashboard.log(f"CMD CANCEL: {uuid}")
+                    result = self.account_manager.cancel_order(uuid)
+                    if hasattr(result, 'model_dump'):
+                         res = result.model_dump()
+                    elif isinstance(result, dict):
+                         res = result
+                    else:
+                         res = {}
+                         
+                    if result:
+                        self.dashboard.log(f"Order Cancelled: {res.get('market')} {res.get('side')} {res.get('state')} {res.get('locked')}")
+                    else:
+                        self.dashboard.log(f"Order Cancel Failed or Not Found: {uuid}")
                  
             else:
                 self.dashboard.log(f"Unknown Action: {action}")

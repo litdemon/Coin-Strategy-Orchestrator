@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import argparse
 import time
 import json
@@ -95,14 +95,14 @@ def main():
     # Sell
     sell_parser = subparsers.add_parser("sell", help="Send Sell Command")
     sell_parser.add_argument("ticker", help="Ticker (e.g., KRW-BTC)")
-    sell_parser.add_argument("price", type=float, nargs="?", help="Price (optional, defaults to current market price)")
-    sell_group = sell_parser.add_mutually_exclusive_group(required=True)
+    sell_parser.add_argument("price_or_all", nargs="?", help="Price or 'all'")
+    sell_group = sell_parser.add_mutually_exclusive_group(required=False)
     sell_group.add_argument("-v", "--volume", type=float, help="Volume in asset unit")
     sell_group.add_argument("-w", "--won", type=float, help="Volume in KRW")
 
     # Cancel
     cancel_parser = subparsers.add_parser("cancel", help="Cancel Order")
-    cancel_parser.add_argument("uuid", help="Order UUID to cancel")
+    cancel_parser.add_argument("target", help="Order UUID or Ticker to cancel all")
 
     args = parser.parse_args()
 
@@ -113,9 +113,39 @@ def main():
     elif args.command == "buy":
         send_command("buy", ticker=args.ticker, volume=args.volume, won=args.won, price=args.price)
     elif args.command == "sell":
-        send_command("sell", ticker=args.ticker, volume=args.volume, won=args.won, price=args.price)
+        volume = args.volume
+        price = None
+        is_all = False
+        
+        # Check price_or_all
+        if args.price_or_all:
+            if args.price_or_all.lower() == "all":
+                is_all = True
+                volume = -1
+            else:
+                try:
+                    price = float(args.price_or_all)
+                except ValueError:
+                    print(f"❌ Invalid price: {args.price_or_all}")
+                    return
+
+        if not is_all and volume is None and args.won is None:
+             print("❌ Either --volume, --won, or 'all' must be specified.")
+             return
+             
+        send_command("sell", ticker=args.ticker, volume=volume, won=args.won, price=price)
+        
     elif args.command == "cancel":
-        send_command("cancel", uuid=args.uuid)
+        # Check if target is UUID or Ticker
+        # Ticker usually starts with KRW- or BTC-
+        # UUID has dashes and is long.
+        target = args.target
+        if "-" in target and len(target) > 10 and not target.startswith("KRW-") and not target.startswith("BTC-") and not target.startswith("USDT-"):
+             # Assume UUID
+             send_command("cancel", uuid=target)
+        else:
+             # Assume Ticker
+             send_command("cancel", ticker=target)
 
 if __name__ == "__main__":
     main()

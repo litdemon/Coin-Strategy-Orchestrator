@@ -27,16 +27,47 @@ class WonColor(Color):
     def __str__(self):
         return f"{self.color}{self.amount:>10,.0f}원\033[0m"
     
-class RedWon:
-    def __init__(self, amount: Decimal):
-        self.amount = amount
-        self.color = "\033[31m"
-    def __str__(self):
-        return f"{self.color}{self.amount:>10,.0f}원\033[0m"
 
 class Won:
     def __init__(self, amount: Decimal):
         self.amount = amount
-        self.color = "\033[33m"
+
     def __str__(self):
-        return f"{self.color}{self.amount:>10,.0f}원\033[0m"
+        return f"{self.amount:>10,.0f}원"
+
+
+class WonR(Won):
+    def __init__(self, amount: Decimal):
+        super().__init__(amount)
+        self.color = "\033[31m"
+
+    def __str__(self):
+        parent = super().__str__()
+        return f"{self.color}{parent}\033[0m"
+    
+class WonG(Won):
+    def __init__(self, amount: Decimal):
+        super().__init__(amount)
+        self.color = "\033[32m"
+
+    def __str__(self):
+        parent = super().__str__()
+        return f"{self.color}{parent}\033[0m"
+    
+class WonY(Won):
+    def __init__(self, amount: Decimal):
+        super().__init__(amount)
+        self.color = "\033[33m"
+
+    def __str__(self):
+        parent = super().__str__()
+        return f"{self.color}{parent}\033[0m"
+    
+class WonB(Won):
+    def __init__(self, amount: Decimal):
+        super().__init__(amount)
+        self.color = "\033[34m"
+
+    def __str__(self):
+        parent = super().__str__()
+        return f"{self.color}{parent}\033[0m"

@@ -10,7 +10,7 @@ import logging
 from tools.candle import Candle
 import pyupbit
 from tools.ticker import Ticker
-from tools.currency_print import WonColor, RateColor, Won, RedWon
+from tools.currency_print import WonColor, RateColor, Won, WonR, WonG, WonY, WonB
 from decimal import Decimal
 import traceback
 
@@ -22,9 +22,10 @@ MAX_WIDTH = 120
 # widget의 계층 구조
 # Dashboard
 #   └── LogWidget
-#   └── BalanceWidget
 #   └── TickerWidget
 #       └── CandleWidget
+#       └── AssetWidget
+#       └── OrderWidget x N
 #       └── PositionsWidget x N
 #           └── StrategyWidget x N
 class Spinner:
@@ -162,8 +163,8 @@ class AssetWidget(Widget):
         
         if self.ticker.currency == "KRW":
             if self.locked > Decimal("0"):
-                 return f"{Won(self.balance)} (Lock: {RedWon(self.locked)})"
-            return f"{Won(self.balance)}"
+                 return f"{WonY(self.balance)} (Lock: {WonR(self.locked)})"
+            return f"{WonY(self.balance)}"
 
         profit_rate = Decimal("0")        
         if self.avg_buy_price > Decimal("0"):
@@ -173,7 +174,7 @@ class AssetWidget(Widget):
         locked_str = ""
         if self.locked > Decimal("0"):
             won_locked = self.locked * current_price
-            locked_str = f" (Lock: {RedWon(won_locked)})"
+            locked_str = f" (Lock: {WonR(won_locked)})"
 
         won_total = ( self.balance + self.locked ) * current_price
         
@@ -182,7 +183,7 @@ class AssetWidget(Widget):
             won_profit = ( current_price - self.avg_buy_price ) * self.balance
             profit_str = f" ({WonColor(won_profit)}:{RateColor(profit_rate)})"
 
-        return f" {Won(won_total)}{locked_str}{profit_str} "
+        return f"{WonY(won_total)}{locked_str}{profit_str} "
 
 
 class OrderWidget(Widget):
@@ -233,7 +234,14 @@ class OrderWidget(Widget):
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         total = self.price * self.volume
-        return f"Order: {self.market} | {self.ask_bid} | {self.ord_type} | {self.ticker.volume(self.volume)} x {self.price:,.0f}원 | {total:,.0f}원 | {self.state}"
+        # Format: [ sell/buy, ticker, amount, fee, order_price ]
+        sidestr = "BUY" if self.ask_bid == "bid" else "SELL"
+        color = "\033[31m" if self.ask_bid == "bid" else "\033[34m" # Red for Buy, Blue for Sell
+        
+        # Fee calculation (estimation 0.05%)
+        fee = total * Decimal("0.0005") 
+        
+        return f"   └── Order: {color}{sidestr:<4}\033[0m | {self.ticker.ticker:<10} | Vol: {self.volume:,.4f} | Fee: {fee:,.0f} | Price: {self.price:,.0f}"
 
 class TickerWidget(Widget):
     
@@ -292,6 +300,11 @@ class TickerWidget(Widget):
             if strategies:
                 strat_str = ", ".join([s.render(current_price_dec) for s in strategies])
                 output.append(with_space(f"   └── Strategies: {strat_str}"))
+
+            # Render Orders
+            orders = [w for w in self.children.values() if isinstance(w, OrderWidget)]
+            for order in orders:
+                output.append(with_space(order.render(current_price_dec)))
 
             # Render Positions
             for pos in positions:
@@ -414,15 +427,36 @@ class Dashboard:
                 return
 
             # 2. Find or Create Widget
+            # 2. Find or Create Widget
             if target_id not in self.registry:
-                # Create if missing
+                if 'ticker' in mtype or 'orderbook' in mtype:
+                    return
+
+                # Create if missing (for asset, order, position, strategy)
                 self._create_widget(target_id, widget_type, payload)
             
             # 3. Update Widget
-            # 3. Update Widget
             if target_id in self.registry:
-                self.registry[target_id].update(payload)
+                widget = self.registry[target_id]
+                widget.update(payload)
                 
+                # Check for Order Completion/Cancellation
+                if widget_type == 'order':
+                    if widget.state in ['done', 'cancel']:
+                         self.log(f"Removing completed order: {target_id} ({widget.state})")
+                         # Remove from parent
+                         if widget.parent and hasattr(widget.parent, 'children'):
+                             if target_id in widget.parent.children:
+                                 del widget.parent.children[target_id]
+                         
+                         # Remove from registry
+                         del self.registry[target_id]
+                         
+                         # Check cleanup for parent
+                         if widget.parent:
+                             self._check_and_remove_ticker(widget.parent.id)
+                         return # Done with this item
+
                 # 4. Cleanup Check (if Asset/Position update)
                 # If TickerWidget is empty (Balance 0, Locked 0, No Children), remove it.
                 if widget_type in ['asset', 'ticker', 'position']: # 'asset' handled as 'ticker' type but payload is from 'asset' msg
@@ -500,38 +534,15 @@ class Dashboard:
         # So we should check if there are any Orders for this ticker?
         # `dashboard.registry` has `OrderWidget`s.
         
-        has_orders = any(
-            isinstance(w, OrderWidget) and w.market == widget.coin.ticker 
-            for w in self.registry.values()
-        )
-        
-        if has_orders:
-            return
-
-        if not widget.children: # Only remove if no positions (or we forcefully remove positions?)
-             # If children exist, we might want to keep it?
-             # But if balance is 0, positions are likely closed or phantom.
-             # User Request: "When all sold... remove".
-             # If we have children, we should probably check if they are effectively closed/zero?
-             # But let's stick to "Balance+Locked == 0" + "No Orders".
-             # If children exist (PositionWidgets), should we remove them too?
-             # Yes.
-             pass
-        
-        # Final Check: Balance 0, Locked 0, No Orders.
-        if widget.asset.balance <= 0 and widget.asset.locked <= 0 and not has_orders:
+        # Strict Check: Balance 0, Locked 0, And No Children (Orders, Positions, Strategies)
+        if not widget.children and widget.asset.balance <= 0 and widget.asset.locked <= 0:
              self.log(f"Removing empty ticker: {ticker_id}")
              del self.registry[ticker_id]
-             
-             # Also remove orphaned children from registry?
-             # Dashboard registry is flat list of all widgets?
-             # "self.registry: Dict[str, Widget] = {}"
-             # TickerWidget is in registry.
-             # PositionWidget is in registry AND in TickerWidget.children.
-             # We must remove children from registry too to avoid memory leak / zombie states if accessed.
-             for child_id in widget.children:
-                 if child_id in self.registry:
-                     del self.registry[child_id]
+             return
+
+        # Explicitly return if conditions not met (cleaning up previous logic)
+        return
+
                 
     def _create_widget(self, id: str, w_type: str, data: Dict[str, Any]):
         widget = None
@@ -542,9 +553,15 @@ class Dashboard:
             widget.avg_buy_price = data.get('avg_buy_price', 0)
         
         elif w_type == 'order':
-            widget = OrderWidget(id) # Parent None
+            # Needs parent ticker
+            t_code = Ticker(data.get('code', "") or data.get('market', "")).ticker
+            if t_code not in self.registry:
+                 self._create_widget(t_code, 'ticker', {'code': t_code})
+            
+            parent = self.registry[t_code]
+            widget = OrderWidget(id, parent) 
             widget.update(data)
-            self.registry[id] = widget
+            parent.add_child(widget)
         
         elif w_type == 'position':
             # Needs parent ticker
@@ -638,10 +655,7 @@ class Dashboard:
                 line = widget.render()
                 output.append(f"{line}")
 
-            orders = sorted([w for w in self.registry.values() if isinstance(w, OrderWidget)], key=lambda x: x.id)
-            for widget in orders:
-                line = widget.render()
-                output.append(f"{line}")
+
 
         # Logs area
         output.append("")
