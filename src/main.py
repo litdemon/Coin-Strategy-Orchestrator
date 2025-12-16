@@ -83,6 +83,7 @@ class Manager(WebsocketObserver):
 
         # Also get tickers from active orders (Limit/Market orders waiting for execution)
         orders = self.account_manager.get_orders()
+        [ self.dashboard.update({'order': order}) for order in orders ]
         order_tickers = [ order.get('market') for order in orders if order.get('market') ]
         
         # Combine unique tickers

@@ -10,7 +10,7 @@ import logging
 from tools.candle import Candle
 import pyupbit
 from tools.ticker import Ticker
-from tools.currency_print import WonColor, RateColor
+from tools.currency_print import WonColor, RateColor, Won
 from decimal import Decimal
 import traceback
 
@@ -135,7 +135,7 @@ class PositionWidget(Widget):
         volume_krw = self.volume * self.entry_price
         pid_short = str(self.id)[:4]
 
-        return f"   └── Rot: {strategy_str} | PnL: {profit_rate_str} | Vol: {volume_krw:,.0f}"
+        return f"   └── Rot:  | PnL: {profit_rate_str} | Vol: {Won(volume_krw)}"
     
 class AssetWidget(Widget):
     def __init__(self, currency: str):
@@ -173,27 +173,43 @@ class OrderWidget(Widget):
         super().__init__(id, parent)
         self.uuid = id
         self.market = ""
-        self.side = ""
+        self.ask_bid = ""
         self.ord_type = ""
         self.price = Decimal("0")
         self.volume = Decimal("0")
         self.volume = Decimal("0")
         self.created_at = time.time()
         self.state = ""
+        self.ticker = None
 
     def update(self, data: Dict[str, Any]):
         logger.info(f"Order Update: {json.dumps(data, indent=4, default=str)}")
+        """
+        Example:
+            {
+                "type": "myOrder",
+                "code": "KRW-SOL",
+                "uuid": "67fb54e1-2791-4024-a806-1c1a4908c745",
+                "ask_bid": "bid",
+                "order_type": "limit",
+                "state": "wait",
+                "price": 197200.0,
+                "volume": 2.535496957403651,
+                "created_at": "2025-12-15T13:44:42.997437+00:00"
+            }
+        """
         self.uuid = data.get('uuid', self.uuid)
-        self.market = data.get('market', self.market)
-        self.side = data.get('side', self.side)
-        self.ord_type = data.get('ord_type', self.ord_type)
-        self.price = data.get('price', self.price)
-        self.volume = data.get('volume', self.volume)
+        self.market = data.get('code', "") or data.get('market', "")
+        self.ask_bid = data.get('ask_bid', self.ask_bid)
+        self.ord_type = data.get('order_type', self.ord_type)
+        self.price = Decimal(str(data.get('price', self.price)))
+        self.volume = Decimal(str(data.get('volume', self.volume)))
         self.state = data.get('state', self.state)
+        self.ticker = Ticker(data.get('code', self.ticker))
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         total = self.price * self.volume
-        return f"Order: {self.market} | {self.side} | {self.ord_type} | {self.volume:,.0f} x {self.price:,.0f}원 | {total:,.0f}원 | {self.state}"
+        return f"Order: {self.market} | {self.ask_bid} | {self.ord_type} | {self.ticker.volume(self.volume)} x {self.price:,.0f}원 | {total:,.0f}원 | {self.state}"
 
 class TickerWidget(Widget):
     

@@ -135,7 +135,7 @@ class DBUpbit:
             
             new_balance = asset.balance - amount
             new_asset = asset.model_copy(update={"balance": new_balance})
-            if new_balance == 0:
+            if new_balance == 0 and asset.locked == 0:
                 new_asset = asset.model_copy(update={"balance": 0, "avg_buy_price": Decimal("0")})
 
             self.asset_repo.save(new_asset)
@@ -413,7 +413,11 @@ class DBUpbit:
                         # Assuming full fill for loop.
                         # If full fill, excess is 0.
                         
-                        new_asset = asset.model_copy(update={"locked": new_locked})
+                        avg_buy_price = asset.avg_buy_price
+                        if asset.balance == 0 and new_locked == 0:
+                            avg_buy_price = Decimal("0")
+                        
+                        new_asset = asset.model_copy(update={"locked": new_locked, "avg_buy_price": avg_buy_price})
                         self.asset_repo.save(new_asset)
                         
                         item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked)

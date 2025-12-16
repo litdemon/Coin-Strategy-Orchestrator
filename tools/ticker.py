@@ -22,6 +22,20 @@ class Ticker(TickerBase):
             return f"{amount:,.0f} {self.currency}"
         return f"{amount:,.4f} {self.currency}"
 
+    def volume(self, volume):
+        if volume > 1000000:
+            return f"{volume/1000:,.0f}K {self.currency}"
+        elif volume > 1000:
+            return f"{volume/1000:,.0f}K {self.currency}"
+        elif volume > 1:
+            return f"{volume:,.2f} {self.currency}"
+        elif volume > 0.001:
+            return f"{volume:,.4f} {self.currency}"
+        elif volume > 0.000001:
+            return f"{volume:,.6f} {self.currency}"
+        else:
+            return f"{volume:,.8f} {self.currency}"
+
     @property
     def ticker(self):
         if self.currency == "KRW":
