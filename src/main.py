@@ -79,15 +79,15 @@ class Manager(WebsocketObserver):
             self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
 
         balances = self.account_manager.get_balances()
-        balance_tickers = [ Ticker(asset.get("currency")).ticker for asset in balances if asset.get("currency") != "KRW" ]
+        all_tickers = [ Ticker(asset.get("currency")).ticker for asset in balances if asset.get("currency") != "KRW" ]
 
         # Also get tickers from active orders (Limit/Market orders waiting for execution)
         orders = self.account_manager.get_orders()
-        [ self.dashboard.update({'order': order}) for order in orders ]
-        order_tickers = [ order.get('market') for order in orders if order.get('market') ]
-        
-        # Combine unique tickers
-        all_tickers = list(set(balance_tickers + order_tickers))
+        for order in orders :
+            self.dashboard.update({'order': order})
+            ticker = Ticker(order.get('market', "") or order.get('code', ""))
+            if ticker.ticker not in all_tickers:
+                all_tickers.append(ticker.ticker)
 
         self.upbit_websocket = UpbitWebSocket(codes=all_tickers, observer=self)
         

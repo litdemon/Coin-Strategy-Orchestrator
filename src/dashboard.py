@@ -62,14 +62,15 @@ class LogWidget(Widget):
     def __init__(self, parent: Optional['Widget'] = None):
         super().__init__("log", parent)
         self.logs = []
-        self.max_logs = 5
+        self.max_logs = 8
     
     def update(self, data: Dict[str, Any]):
         if 'message' in data:
             self.update_log(data['message'])
 
     def update_log(self, message: str):
-        self.logs.append(message)
+        space = MAX_WIDTH - len(message)
+        self.logs.append(message + " " * space)
         if len(self.logs) > self.max_logs:
             self.logs.pop(0)
     
@@ -135,7 +136,7 @@ class PositionWidget(Widget):
         volume_krw = self.volume * self.entry_price
         pid_short = str(self.id)[:4]
 
-        return f"   └── Rot:  | PnL: {profit_rate_str} | Vol: {Won(volume_krw)}"
+        return f"   └── Rot:  | Vol: {Won(volume_krw)}:{profit_rate_str}"
     
 class AssetWidget(Widget):
     def __init__(self, currency: str):
@@ -200,16 +201,39 @@ class OrderWidget(Widget):
         """
         self.uuid = data.get('uuid', self.uuid)
         self.market = data.get('code', "") or data.get('market', "")
-        self.ask_bid = data.get('ask_bid', self.ask_bid)
-        self.ord_type = data.get('order_type', self.ord_type)
-        self.price = Decimal(str(data.get('price', self.price)))
-        self.volume = Decimal(str(data.get('volume', self.volume)))
+        
+        # side/ask_bid mapping
+        self.ask_bid = data.get('ask_bid', data.get('side', self.ask_bid))
+        
+        self.ord_type = data.get('order_type', data.get('ord_type', self.ord_type))
+        
+        # Safe Decimal conversion
+        try:
+            price_val = data.get('price')
+            if price_val is None:
+                self.price = Decimal("0")
+            else:
+                self.price = Decimal(str(price_val))
+        except:
+             self.price = Decimal("0")
+
+        try:
+            vol_val = data.get('volume')
+            if vol_val is None:
+                self.volume = Decimal("0")
+            else:
+                self.volume = Decimal(str(vol_val))
+        except:
+             self.volume = Decimal("0")
+
         self.state = data.get('state', self.state)
-        self.ticker = Ticker(data.get('code', self.ticker))
+        self.ticker = Ticker(self.market)
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         total = self.price * self.volume
-        return f"Order: {self.market} | {self.ask_bid} | {self.ord_type} | {self.ticker.volume(self.volume)} x {self.price:,.0f}원 | {total:,.0f}원 | {self.state}"
+        line = f"Order: {self.market} | {self.ask_bid} | {self.ord_type} | {self.ticker.volume(self.volume)} x {self.price:,.0f}원 | {total:,.0f}원 | {self.state}"
+        space = ' ' * (MAX_WIDTH - len(line))
+        return f"{line}{space}"
 
 class TickerWidget(Widget):
     
@@ -380,6 +404,7 @@ class Dashboard:
         elif w_type == 'order':
             widget = OrderWidget(id) # Parent None
             widget.update(data)
+            self.registry[id] = widget
         
         elif w_type == 'position':
             # Needs parent ticker
@@ -470,12 +495,12 @@ class Dashboard:
             tickers = sorted([w for w in self.registry.values() if isinstance(w, TickerWidget)], key=lambda x: x.id)
             for widget in tickers:
                 line = widget.render()
-                output.append(f"{line}{"=" * (MAX_WIDTH - len(line))}")
+                output.append(f"{line}")
 
             orders = sorted([w for w in self.registry.values() if isinstance(w, OrderWidget)], key=lambda x: x.id)
             for widget in orders:
                 line = widget.render()
-                output.append(f"{line}{"=" * (MAX_WIDTH - len(line))}")
+                output.append(f"{line}")
 
         # Logs area
         output.append("")

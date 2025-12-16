@@ -33,8 +33,72 @@ class DBUpbit:
         
         # Initialize DB tables
         self.asset_repo.init_db()
-        self.asset_repo.init_db()
         self.order_repo.init_db()
+        
+        # Synchronize locked balances
+        self.synchronize_locked_balances()
+
+    def synchronize_locked_balances(self):
+        """
+        Synchronize 'locked' balance in assets table with actual open orders.
+        Fixes discrepancies if DB state was inconsistent (e.g. crash).
+        """
+        with self.lock:
+            # 1. Calculate expected locks from Open Orders
+            open_orders = self.order_repo.get_by_state("wait")
+            calculated_locks = {} # currency -> Decimal
+            
+            for order in open_orders:
+                currency = ""
+                if order.side == "bid":
+                    # Lock is on Unit Currency (e.g. KRW)
+                    ticker = Ticker(order.market)
+                    currency = ticker.unit_currency
+                else:
+                    # Lock is on Currency (e.g. BTC)
+                    ticker = Ticker(order.market)
+                    currency = ticker.currency
+                
+                current_lock = calculated_locks.get(currency, Decimal("0"))
+                calculated_locks[currency] = current_lock + order.locked
+
+            # 2. Update Assets
+            # We iterate ALL assets to ensure we also clear phantom locks (orders=0, but asset.locked>0)
+            all_assets = self.asset_repo.get_all()
+            for asset in all_assets:
+                expected_locked = calculated_locks.get(asset.currency, Decimal("0"))
+                
+                if asset.locked != expected_locked:
+                    diff = expected_locked - asset.locked
+                    
+                    # Logic: 
+                    # Total Funds = Balance + Locked.
+                    # We assume Total Funds is correct source of truth.
+                    # New Locked = Expected.
+                    # New Balance = Total - New Locked 
+                    #             = (Balance + Locked) - Expected
+                    #             = Balance - (Expected - Locked)
+                    #             = Balance - diff
+                    
+                    new_balance = asset.balance - diff
+                    
+                    if new_balance < 0:
+                        logger.warning(f"Sync Lock Error for {asset.currency}: Balance became negative ({new_balance}). Resetting to 0.")
+                        new_balance = Decimal("0")
+                        # If balance is 0, we can only lock what we have? 
+                        # Or strictly follow order?
+                        # If we strictly follow order, we might have negative balance which is bad.
+                        # But 'locked' MUST match orders for execution logic.
+                        # We'll set balance 0, and allow locked to be expected (assuming data corruption -> user manually fixed balance?)
+                        # Or maybe 'locked' in order is wrong?
+                        
+                    logger.info(f"Syncing {asset.currency}: Locked {asset.locked} -> {expected_locked}. Balance {asset.balance} -> {new_balance}")
+                    
+                    new_asset = asset.model_copy(update={
+                        "locked": expected_locked,
+                        "balance": new_balance
+                    })
+                    self.asset_repo.save(new_asset)
 
     def get_fee_rate(self, market: str) -> Decimal:
         """Get fee rate for market (e.g. KRW-BTC). Default 0.05% for KRW."""
