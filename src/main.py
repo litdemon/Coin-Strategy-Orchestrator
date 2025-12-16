@@ -389,11 +389,9 @@ class Manager(WebsocketObserver):
                         
                     # 2. Archive Strategies
                     # Find strategies for this ticker
-                    # StrategyManager doesn't have get_strategies_by_ticker method directly exposed cleanly?
-                    # iterating self.strategy_manager.strategies
                     to_archive = []
                     for sid, strategy in self.strategy_manager.strategies.items():
-                        if strategy.context.ticker == ticker:
+                         if hasattr(strategy, 'context') and strategy.context.ticker == ticker:
                             to_archive.append(sid)
                     
                     for sid in to_archive:
@@ -403,29 +401,46 @@ class Manager(WebsocketObserver):
                     self.dashboard.log(f"Cleanup complete for {ticker}")
 
             elif action == "cancel":
-                uuid = data.get("uuid")
+                uuid_arg = data.get("uuid")
                 ticker_str = data.get("ticker")
                 
                 if ticker_str:
                     # Generic Cancel by Ticker
                     t = Ticker(ticker_str)
                     self.dashboard.log(f"CMD CANCEL ALL: {t.ticker}")
-                    # Fetch open orders for this ticker
-                    # AccountManager.get_order(ticker) returns list of orders (dict or DTO)
                     orders = self.account_manager.get_order(t.ticker)
                     if not orders:
                          self.dashboard.log(f"No open orders found for {t.ticker}")
                     
                     for order in orders:
-                         # Handle Dict vs DTO
                          oid = order.get('uuid') if isinstance(order, dict) else getattr(order, 'uuid', None)
                          if oid:
                              self.account_manager.cancel_order(oid)
                              self.dashboard.log(f"Cancelled {oid}")
                 
-                elif uuid:
-                    self.dashboard.log(f"CMD CANCEL: {uuid}")
-                    result = self.account_manager.cancel_order(uuid)
+                elif uuid_arg:
+                    # Handle Partial UUID (6 chars)
+                    target_uuid = uuid_arg
+                    if len(uuid_arg) < 36: # Full UUID is 36 chars
+                        all_orders = self.account_manager.get_orders() # Fetch all wait orders
+                        matches = []
+                        for order in all_orders:
+                            oid = order.get('uuid') if isinstance(order, dict) else getattr(order, 'uuid', None)
+                            if oid and oid.startswith(uuid_arg):
+                                matches.append(oid)
+                        
+                        if len(matches) == 1:
+                            target_uuid = matches[0]
+                            self.dashboard.log(f"Partial UUID '{uuid_arg}' resolved to {target_uuid}")
+                        elif len(matches) > 1:
+                            self.dashboard.log(f"Ambiguous partial UUID '{uuid_arg}'. Matches: {matches}")
+                            return # Safety abort
+                        else:
+                            self.dashboard.log(f"No order found matching partial UUID '{uuid_arg}'")
+                            return
+
+                    self.dashboard.log(f"CMD CANCEL: {target_uuid}")
+                    result = self.account_manager.cancel_order(target_uuid)
                     if hasattr(result, 'model_dump'):
                          res = result.model_dump()
                     elif isinstance(result, dict):
@@ -436,14 +451,80 @@ class Manager(WebsocketObserver):
                     if result:
                         self.dashboard.log(f"Order Cancelled: {res.get('market')} {res.get('side')} {res.get('state')} {res.get('locked')}")
                     else:
-                        self.dashboard.log(f"Order Cancel Failed or Not Found: {uuid}")
+                        self.dashboard.log(f"Order Cancel Failed or Not Found: {target_uuid}")
+
+            elif action == "positions":
+                 self.dashboard.log("CMD POSITIONS Request")
+                 reply_to = data.get("reply_to")
                  
+                 # Gather positions handled by PositionManager? Or Account Assets?
+                 # User asked for "position list". Usually means active positions tracking profits.
+                 # StrategyManager / PositionManager has them.
+                 # Let's list PositionManager active positions.
+                 
+                 lines = []
+                 lines.append(f"{'UUID':<8} | {'Ticker':<10} | {'ROI':<8} | {'Vol':<12}")
+                 lines.append("-" * 50)
+                 
+                 count = 0 
+                 for pos in self.position_manager.positions.values():
+                    ticker = Ticker(pos.ticker)
+                    profit_rate = (self.price_ob.get(ticker.ticker) / pos.entry_price) -1
+                    uuid_short = pos.id[:6]
+                    roi = f"{profit_rate * 100:.2f}%"
+                    lines.append(f"{uuid_short:<8} | {ticker.ticker:<10} | {roi:<8} | {pos.volume}")
+                    count += 1
+                 
+                 if count == 0:
+                     lines.append("No active positions.")
+                     
+                 response_text = "\n".join(lines)
+                 
+                 if reply_to:
+                     self.messaging.publish(reply_to, {"text": response_text})
+                 else:
+                     self.dashboard.log(response_text) # Log local if no reply address
+
+            elif action == "orders":
+                 self.dashboard.log("CMD ORDERS Request")
+                 reply_to = data.get("reply_to")
+                 
+                 # AccountManager.get_orders() returns list of open orders
+                 orders = self.account_manager.get_orders()
+                 
+                 lines = []
+                 lines.append(f"{'UUID':<8} | {'Ticker':<10} | {'Side':<4} | {'Price':<12} | {'Vol'}")
+                 lines.append("-" * 65)
+                 
+                 count = 0
+                 for o in orders:
+                     # Handle Dict vs Object
+                     oid = o.get('uuid') if isinstance(o, dict) else getattr(o, 'uuid', "")
+                     mkt = o.get('market') if isinstance(o, dict) else getattr(o, 'market', "")
+                     side = o.get('side') if isinstance(o, dict) else getattr(o, 'side', "")
+                     price = o.get('price') if isinstance(o, dict) else getattr(o, 'price', 0)
+                     vol = o.get('remaining_volume') if isinstance(o, dict) else getattr(o, 'remaining_volume', 0)
+                     
+                     uuid_short = oid[:6]
+                     lines.append(f"{uuid_short:<8} | {mkt:<10} | {side:<4} | {price:<12} | {vol}")
+                     count += 1
+                     
+                 if count == 0:
+                     lines.append("No open orders.")
+                     
+                 response_text = "\n".join(lines)
+                 
+                 if reply_to:
+                     self.messaging.publish(reply_to, {"text": response_text})
+                 else:
+                     self.dashboard.log(response_text)
+
             else:
                 self.dashboard.log(f"Unknown Action: {action}")
                 
         except Exception as e:
             logger.error(f"Error processing command: {e}")
-            self.dashboard.log(f"CMD Error: {e}")
+            logger.error(traceback.format_exc())
         
     def on_my_order(self, cls, message: dict):
         ticker = message['code']

@@ -28,6 +28,11 @@ class Position(PositionBase, DBInterface):
     def is_closed(self) -> bool:
         return self.status == "closed"
 
+    # def profit_rate(self) -> Decimal:
+    #     if self.is_closed:
+    #         return (self.close_price - self.entry_price) / self.entry_price
+    #     return Decimal(0.0)
+
 class PositionManager:
     def __init__(self, db_path: str = "account.db"):
         self.db_path = db_path
