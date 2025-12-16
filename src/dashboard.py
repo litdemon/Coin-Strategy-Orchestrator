@@ -10,7 +10,7 @@ import logging
 from tools.candle import Candle
 import pyupbit
 from tools.ticker import Ticker
-from tools.currency_print import WonColor, RateColor, Won
+from tools.currency_print import WonColor, RateColor, Won, RedWon
 from decimal import Decimal
 import traceback
 
@@ -141,7 +141,7 @@ class PositionWidget(Widget):
 class AssetWidget(Widget):
     def __init__(self, currency: str):
         super().__init__(currency, None) # Root widget
-        self.currency = currency
+        self.ticker = Ticker(currency)
         self.balance = Decimal("0")
         self.avg_buy_price = Decimal("0")
         self.locked = Decimal("0")
@@ -154,19 +154,29 @@ class AssetWidget(Widget):
     
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         
-        if self.balance == 0 or self.currency == "KRW":
-            if self.locked > 0:
-                 return f"{WonColor(self.balance)} (Lock: {WonColor(self.locked)})"
-            return f"{WonColor(self.balance)}"
-        
-        profit = (current_price - self.avg_buy_price) / self.avg_buy_price * 100
-        profit_won = (current_price - self.avg_buy_price) * self.balance
+        if self.ticker.currency == "KRW":
+            if self.locked > Decimal("0"):
+                 return f"{Won(self.balance)} (Lock: {RedWon(self.locked)})"
+            return f"{Won(self.balance)}"
+
+        profit_rate = Decimal("0")        
+        if self.avg_buy_price > Decimal("0"):
+            profit_rate = (current_price - self.avg_buy_price) / self.avg_buy_price * 100
+            
 
         locked_str = ""
-        if self.locked > 0:
-            locked_str = f" (Lock: {self.locked})"
+        if self.locked > Decimal("0"):
+            won_locked = self.locked * current_price
+            locked_str = f" (Lock: {RedWon(won_locked)})"
 
-        return f" {self.balance * current_price:>10,.0f}원 ({WonColor(profit_won)}:{RateColor(profit)}){locked_str} | 현재가: {current_price:,.0f}"
+        won_total = ( self.balance + self.locked ) * current_price
+        
+        profit_str = ""
+        if self.balance > Decimal("0"):
+            won_profit = ( current_price - self.avg_buy_price ) * self.balance
+            profit_str = f" ({WonColor(won_profit)}:{RateColor(profit_rate)})"
+
+        return f" {Won(won_total)}{locked_str}{profit_str} "
 
 
 class OrderWidget(Widget):
@@ -185,20 +195,6 @@ class OrderWidget(Widget):
 
     def update(self, data: Dict[str, Any]):
         logger.info(f"Order Update: {json.dumps(data, indent=4, default=str)}")
-        """
-        Example:
-            {
-                "type": "myOrder",
-                "code": "KRW-SOL",
-                "uuid": "67fb54e1-2791-4024-a806-1c1a4908c745",
-                "ask_bid": "bid",
-                "order_type": "limit",
-                "state": "wait",
-                "price": 197200.0,
-                "volume": 2.535496957403651,
-                "created_at": "2025-12-15T13:44:42.997437+00:00"
-            }
-        """
         self.uuid = data.get('uuid', self.uuid)
         self.market = data.get('code', "") or data.get('market', "")
         
@@ -231,9 +227,7 @@ class OrderWidget(Widget):
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         total = self.price * self.volume
-        line = f"Order: {self.market} | {self.ask_bid} | {self.ord_type} | {self.ticker.volume(self.volume)} x {self.price:,.0f}원 | {total:,.0f}원 | {self.state}"
-        space = ' ' * (MAX_WIDTH - len(line))
-        return f"{line}{space}"
+        return f"Order: {self.market} | {self.ask_bid} | {self.ord_type} | {self.ticker.volume(self.volume)} x {self.price:,.0f}원 | {total:,.0f}원 | {self.state}"
 
 class TickerWidget(Widget):
     
@@ -269,12 +263,18 @@ class TickerWidget(Widget):
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         output = []
         
+        def with_space(line: str):
+            space = ' ' * (MAX_WIDTH - len(line))
+            return f"{line}{space}"
+
         current_price = self.candle.current_price()
         # Candle uses float, AssetWidget uses Decimal
         current_price_dec = Decimal(str(current_price))
 
-        output.append(f"{self.spinner()} {self.coin.ticker:<10} |  {self.candle.render()}")
-        output.append(f"   └── Asset | {self.asset.render(current_price_dec)} ")
+        candle_str = f"{self.spinner()} {self.candle.render()} {Won(current_price_dec)}"
+        output.append(with_space(f" {self.coin.ticker:11} | {candle_str}"))
+        if self.asset.balance > Decimal("0"):
+            output.append(with_space(f"   └── Asset | {self.asset.render(current_price_dec)} "))
         
         # Render child widgets (Positions and Strategies)
         if self.children:
@@ -285,13 +285,12 @@ class TickerWidget(Widget):
             # Render Strategies first
             if strategies:
                 strat_str = ", ".join([s.render(current_price_dec) for s in strategies])
-                output.append(f"   └── Strategies: {strat_str}")
+                output.append(with_space(f"   └── Strategies: {strat_str}"))
 
             # Render Positions
             for pos in positions:
-                output.append(pos.render(current_price_dec))
-        else:
-            output.append(f"   └── No Active Positions")
+                output.append(with_space(pos.render(current_price_dec)))
+
         
         output.append("-" * MAX_WIDTH)
         return "\n".join(output)
@@ -390,8 +389,119 @@ class Dashboard:
                 self._create_widget(target_id, widget_type, payload)
             
             # 3. Update Widget
+            # 3. Update Widget
             if target_id in self.registry:
                 self.registry[target_id].update(payload)
+                
+                # 4. Cleanup Check (if Asset/Position update)
+                # If TickerWidget is empty (Balance 0, Locked 0, No Children), remove it.
+                if widget_type in ['asset', 'ticker', 'position']: # 'asset' handled as 'ticker' type but payload is from 'asset' msg
+                    # If it was an asset update, target_id is Ticker.
+                    # If it was a position update, target_id might be Position ID? 
+                    # Wait, if position update, target_id is position ID.
+                    # We need to find the parent ticker to check cleanup.
+                    
+                    cleanup_target_id = None
+                    if target_id in self.registry and isinstance(self.registry[target_id], TickerWidget):
+                        cleanup_target_id = target_id
+                    elif target_id in self.registry and isinstance(self.registry[target_id], PositionWidget):
+                        # Position widget, check parent
+                        parent = self.registry[target_id].parent
+                        if parent and isinstance(parent, TickerWidget):
+                             cleanup_target_id = parent.id
+                    
+                    if cleanup_target_id:
+                        self._check_and_remove_ticker(cleanup_target_id)
+                
+    def _check_and_remove_ticker(self, ticker_id: str):
+        if ticker_id not in self.registry:
+            return
+            
+        widget = self.registry[ticker_id]
+        if not isinstance(widget, TickerWidget):
+            return
+
+        # Condition 1: Balance & Locked is 0
+        if widget.asset.balance > 0 or widget.asset.locked > 0:
+            return
+            
+        # Condition 2: No Children (Positions/Strategies)
+        # Note: PositionWidget might be "closed" but still in children if not removed?
+        # If we rely on PositionWidget removal elsewhere, this is fine.
+        # But if PositionWidget is created, it stays in children.
+        # So we only remove if children is empty.
+        # Users might want to see closed positions for a while?
+        # User request: "When sold all (balance 0), remove ticker". 
+        # Usually implies all positions generate the Sell, so positions are closed.
+        # If we have closed positions, should we remove the Ticker?
+        # If Ticker is removed, Positions are gone too (from UI).
+        # This seems to be what user wants ("Update dashboard to remove TickerWidget").
+        
+        # However, we must ensure we don't remove if there are ACTIVE positions.
+        # PositionWidget doesn't interpret "active" vs "closed" state fully in property?
+        # Let's check if any child is a PositionWidget.
+        # Ideally, we should check if they are "active".
+        # But PositionWidget structure implies existence = relevant.
+        # If user sold all, typically positions are closed.
+        # If we implement "Remove Ticker", we implicitly remove all children.
+        
+        # Safest check: If Balance is 0 and Locked is 0.
+        # But what if I have a position but balance is 0? (Shorting? Not supported here).
+        # Or partial fill?
+        # User said "All sold, Balance 0".
+        # So if Balance is 0 and Locked is 0, we can remove.
+        # Wait, if I have an Open Order (Buy), Locked > 0. So it won't be removed. Correct.
+        # If I have Open Order (Sell), Locked > 0. Won't be removed. Correct.
+        # So checking Balance + Locked == 0 is consistent.
+        # But what if I have an active position (Wait, Sell Limit not created yet)?
+        # If I have active position, I likely have some balance (the coin).
+        # So Balance > 0. 
+        # So Balance == 0 and Locked == 0 implies no Coin holdings and no Active Sell Orders.
+        # Does it imply no Buy Orders?
+        # Buy Order locks KRW, not Coin.
+        # So KRW-BTC TickerWidget might have Balance 0, Locked 0 (Coin), but user has Buy Order for BTC.
+        # If we remove TickerWidget, we can't see the Buy Order execution on that Ticker?
+        # OrderWidget is separate? No, OrderWidget is unrelated to TickerWidget in hierarchy?
+        # Dashboard displays OrderWidgets separately in `_render`:
+        # `orders = sorted([w for w in self.registry.values() if isinstance(w, OrderWidget)], ...)`
+        # `TickerWidget` displays `Candle` and `Asset`.
+        # If we remove TickerWidget, we lose Candle view and Asset view.
+        # If I have a Buy Order, do I want to see the Ticker (Candle)? Probably yes.
+        # So we should check if there are any Orders for this ticker?
+        # `dashboard.registry` has `OrderWidget`s.
+        
+        has_orders = any(
+            isinstance(w, OrderWidget) and w.market == widget.coin.ticker 
+            for w in self.registry.values()
+        )
+        
+        if has_orders:
+            return
+
+        if not widget.children: # Only remove if no positions (or we forcefully remove positions?)
+             # If children exist, we might want to keep it?
+             # But if balance is 0, positions are likely closed or phantom.
+             # User Request: "When all sold... remove".
+             # If we have children, we should probably check if they are effectively closed/zero?
+             # But let's stick to "Balance+Locked == 0" + "No Orders".
+             # If children exist (PositionWidgets), should we remove them too?
+             # Yes.
+             pass
+        
+        # Final Check: Balance 0, Locked 0, No Orders.
+        if widget.asset.balance <= 0 and widget.asset.locked <= 0 and not has_orders:
+             self.log(f"Removing empty ticker: {ticker_id}")
+             del self.registry[ticker_id]
+             
+             # Also remove orphaned children from registry?
+             # Dashboard registry is flat list of all widgets?
+             # "self.registry: Dict[str, Widget] = {}"
+             # TickerWidget is in registry.
+             # PositionWidget is in registry AND in TickerWidget.children.
+             # We must remove children from registry too to avoid memory leak / zombie states if accessed.
+             for child_id in widget.children:
+                 if child_id in self.registry:
+                     del self.registry[child_id]
                 
     def _create_widget(self, id: str, w_type: str, data: Dict[str, Any]):
         widget = None

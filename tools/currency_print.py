@@ -26,7 +26,13 @@ class WonColor(Color):
         super().__init__(amount, standard)
     def __str__(self):
         return f"{self.color}{self.amount:>10,.0f}원\033[0m"
-
+    
+class RedWon:
+    def __init__(self, amount: Decimal):
+        self.amount = amount
+        self.color = "\033[31m"
+    def __str__(self):
+        return f"{self.color}{self.amount:>10,.0f}원\033[0m"
 
 class Won:
     def __init__(self, amount: Decimal):

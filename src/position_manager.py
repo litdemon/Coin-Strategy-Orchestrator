@@ -53,9 +53,10 @@ class PositionManager:
     def get_position(self, pid:str) -> Optional[Position]:
         return self.positions.get(pid)
 
-    def on_order_fill(self, order_info: dict):
+    def on_order_fill(self, order_info: dict) -> Optional[Position]:
         """
         Handle order fill events (both buy and sell).
+        Returns the created or modified Position object, or None.
         """
         ticker = order_info.get('code')
         side = order_info.get('ask_bid') # 'bid' or 'ask'
@@ -72,12 +73,12 @@ class PositionManager:
         volume = Decimal(str(raw_volume))
 
         if state != 'done':
-            return
+            return None
 
         if side == 'bid':
             # Buy order filled -> Create Position
             if price > 0 and volume > 0:
-                 self.create_position(ticker, price, volume)
+                 return self.create_position(ticker, price, volume)
 
         elif side == 'ask':
             # Sell order filled -> Close Position
@@ -96,8 +97,11 @@ class PositionManager:
                 # Update local cache
                 self.positions[pos.id] = pos
                 logger.info(f"[PositionManager] Closed Position {pos.id} for {ticker} at {price}")
+                return pos
             else:
                 logger.warning(f"[PositionManager] Sell Order {state} but no active position for {ticker}")
+                
+        return None
 
     def archive_position(self, position_id: str):
         """Archive a position and remove from memory."""

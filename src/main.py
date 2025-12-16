@@ -289,10 +289,10 @@ class Manager(WebsocketObserver):
                 
             elif action == "buy":
                 # Implement Buy Logic or delegate
-                ticker = data.get("ticker")
-                volume = data.get("volume")
-                price = data.get("price")
-                won = data.get("won")
+                ticker = Ticker(data.get("ticker"))
+                volume = Decimal(data.get("volume") or Decimal("0"))
+                price = Decimal(data.get("price") or Decimal("0"))
+                won = Decimal(data.get("won") or Decimal("0"))
                 
                 # Dynamic Subscription: If new ticker, subscribe to orderbook/ticker updates
                 if ticker and ticker not in self.upbit_websocket.codes:
@@ -300,7 +300,7 @@ class Manager(WebsocketObserver):
                     self.upbit_websocket.add_subscription([ticker])
                 
                 is_market = False
-                if price is not None and float(price) <= 0:
+                if price <= 0:
                     is_market = True
                     price = None
 
@@ -308,14 +308,15 @@ class Manager(WebsocketObserver):
                      price = pyupbit.get_current_price(ticker)
                      self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
 
-                if won and price:
-                    volume = Decimal(str(won)) / Decimal(str(price))
+                if won > 0 and volume <= 0:
+                    price = Decimal( pyupbit.get_current_price(ticker) )
+                    volume = (won - won * self.config.fee) / price
                 
                 # Validation: Price and Volume must be positive
-                if volume is not None and float(volume) <= 0:
+                if volume <= 0:
                      self.dashboard.log(f"Invalid Buy Volume: {volume}. Must be positive.")
                      return
-                if price is not None and float(price) <= 0 and not is_market:
+                if price <= 0 and not is_market:
                      self.dashboard.log(f"Invalid Buy Price: {price}. Must be positive for Limit Order.")
                      return
 
@@ -323,16 +324,18 @@ class Manager(WebsocketObserver):
                 
                 # Trigger buy via account_manager
                 if is_market:
-                     self.account_manager.buy_market_order(ticker, float(volume))
+                    order = self.account_manager.buy_market_order(ticker, volume)
                 else:
-                     self.account_manager.buy_limit_order(ticker, float(price), float(volume))
+                    order = self.account_manager.buy_limit_order(ticker, price, volume)
+                
+                self.dashboard.log(f"Order Placed: {order}")
                 
             elif action == "sell":
                 # Implement Sell Logic or delegate
-                ticker = data.get("ticker")
-                volume = data.get("volume")
-                price = data.get("price")
-                won = data.get("won")
+                ticker = Ticker(data.get("ticker"))
+                volume = Decimal(data.get("volume"))
+                price = Decimal(data.get("price"))
+                won = Decimal(data.get("won"))
                 
                 is_market = False
                 if price is not None and float(price) <= 0:
@@ -365,9 +368,9 @@ class Manager(WebsocketObserver):
                 
                 # Trigger sell via account_manager
                 if is_market:
-                    self.account_manager.sell_market_order(ticker, float(volume))
+                    self.account_manager.sell_market_order(ticker, volume)
                 else:
-                    self.account_manager.sell_limit_order(ticker, float(price), float(volume))
+                    self.account_manager.sell_limit_order(ticker, price, volume)
                 
                 if is_sell_all and self.virtual:
                     # Clean up Virtual Account Artifacts
@@ -399,7 +402,7 @@ class Manager(WebsocketObserver):
                 self.dashboard.log(f"CMD CANCEL: {uuid}")
                 result = self.account_manager.cancel_order(uuid)
                 if result:
-                     self.dashboard.log(f"Order Cancelled: {result}")
+                    self.dashboard.log(f"Order Cancelled: {result.get('market')} {result.get('side')} {result.get('state')} {result.get('locked')}")
                 else:
                      self.dashboard.log(f"Order Cancel Failed or Not Found: {uuid}")
                  
@@ -424,9 +427,17 @@ class Manager(WebsocketObserver):
         
         if ask_bid == "bid" and state == "done":
             # 새로운 position 생성
-            self.position_manager.on_order_fill(message)
+            pos = self.position_manager.on_order_fill(message)
+            if pos:
+                self.dashboard.update({'position': pos.model_dump()})
+                self.dashboard.log(f"New Position: {pos.ticker} ({pos.id[:8]})")
+                
         elif ask_bid == "ask" and state == "done":
-            self.position_manager.on_order_fill(message)
+            pos = self.position_manager.on_order_fill(message)
+            if pos:
+                self.dashboard.update({'position': pos.model_dump()})
+                self.dashboard.log(f"Position Closed: {pos.ticker} ({pos.id[:8]})")
+                
         elif ask_bid == "cancel":
             pass
         else:
