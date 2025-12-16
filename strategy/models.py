@@ -33,6 +33,7 @@ class StrategyConfig(BaseModel):
     """Base configuration for a strategy."""
     strategy_type: str
     execution_interval: Optional[int] = None # Seconds. If set, on_schedule is called.
+    schedule: Optional[str] = None # Crontab expression (e.g., "* * * * *")
     
     class Config:
         extra = "allow"
@@ -49,6 +50,7 @@ class StrategyDTO(BaseModel):
     state: Dict[str, Any]
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
+    last_execution_time: float = 0.0
 
     class Config:
         arbitrary_types_allowed = True
@@ -62,6 +64,7 @@ class StrategyContext(BaseModel):
     ticker: str
     budget: Decimal
     position_id: Optional[str] = None
+    last_execution_time: float = 0.0
     
     class Config:
         arbitrary_types_allowed = True

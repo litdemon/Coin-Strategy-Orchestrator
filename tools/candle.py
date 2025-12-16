@@ -5,6 +5,7 @@ from decimal import Decimal
 class Candle:
     def __init__(self, code: str, price: Decimal):
         self.code = code
+        price = Decimal(str(price))
         self.open = price
         self.high = price
         self.low = price
@@ -12,6 +13,7 @@ class Candle:
         self.prev = price
 
     def update(self, price: Decimal):
+        price = Decimal(str(price))
         self.prev = self.close
         self.close = price
         if price > self.high:

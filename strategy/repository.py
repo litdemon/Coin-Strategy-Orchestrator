@@ -22,7 +22,8 @@ class StrategyRepository:
                     config JSON NOT NULL,
                     state JSON NOT NULL,
                     created_at REAL,
-                    updated_at REAL
+                    updated_at REAL,
+                    last_execution_time REAL DEFAULT 0.0
                 )
             """)
             conn.commit()
@@ -40,6 +41,7 @@ class StrategyRepository:
                     state JSON NOT NULL,
                     created_at REAL,
                     updated_at REAL,
+                    last_execution_time REAL DEFAULT 0.0,
                     archived_at REAL
                 )
             """)
@@ -50,8 +52,8 @@ class StrategyRepository:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO strategies 
-                (strategy_id, type, ticker, budget, position_id, status, config, state, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (strategy_id, type, ticker, budget, position_id, status, config, state, created_at, updated_at, last_execution_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 strategy.strategy_id,
                 strategy.type,
@@ -62,16 +64,13 @@ class StrategyRepository:
                 json.dumps(strategy.config, default=str),
                 json.dumps(strategy.state, default=str),
                 strategy.created_at,
-                strategy.updated_at
+                strategy.updated_at,
+                strategy.last_execution_time
             ))
             conn.commit()
 
     def archive(self, strategy_id: str):
         """Move strategy to archive table."""
-        import time # Ensure time is available if not globally imported, but it is imported at top of file usually? 
-        # Check imports at top of file: yes, but only 'import sqlite3', 'json'. Need 'time'.
-        # Actually 'created_at' uses float time. 'archived_at' too.
-        
         dto = self.get(strategy_id)
         if not dto:
             return
@@ -85,19 +84,20 @@ class StrategyRepository:
             
             cursor.execute("""
                 INSERT OR REPLACE INTO strategies_archive
-                (strategy_id, type, ticker, budget, position_id, status, config, state, created_at, updated_at, archived_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (strategy_id, type, ticker, budget, position_id, status, config, state, created_at, updated_at, last_execution_time, archived_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 dto.strategy_id,
                 dto.type,
                 dto.ticker,
                 str(dto.budget),
                 dto.position_id,
-                "ARCHIVED", # Force status to archived? or keep original? Let's say ARCHIVED.
+                "ARCHIVED", 
                 json.dumps(dto.config, default=str),
                 json.dumps(dto.state, default=str),
                 dto.created_at,
                 dto.updated_at,
+                dto.last_execution_time,
                 archived_at
             ))
             
@@ -129,6 +129,11 @@ class StrategyRepository:
             return [self._row_to_dto(row) for row in cursor.fetchall()]
 
     def _row_to_dto(self, row: sqlite3.Row) -> StrategyDTO:
+        # Backward compatibility check for last_execution_time
+        last_exec = 0.0
+        if 'last_execution_time' in row.keys():
+             last_exec = row['last_execution_time']
+
         return StrategyDTO(
             strategy_id=row['strategy_id'],
             type=row['type'],
@@ -139,5 +144,6 @@ class StrategyRepository:
             config=json.loads(row['config']),
             state=json.loads(row['state']),
             created_at=row['created_at'],
-            updated_at=row['updated_at']
+            updated_at=row['updated_at'],
+            last_execution_time=last_exec
         )

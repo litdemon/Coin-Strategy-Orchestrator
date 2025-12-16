@@ -89,11 +89,15 @@ class StrategyWidget(Widget):
         super().__init__(id, parent)
         self.name = "Unknown"
         self.state = ""
-    
+        self.config = {}
+
     def update(self, data: Dict[str, Any]):
+        logger.info(f"Strategy Update: {json.dumps(data, indent=4, default=str)}")
         # data is StrategyDTO or dict
         self.name = data.get('type', self.name)
         self.state = data.get('status', self.state)
+        self.config = data.get('config', self.config)
+        
         # Handle simple dict update too
         if 'strategy' in data: # legacy or simple dict
              self.name = data.get('strategy', self.name)
@@ -101,9 +105,18 @@ class StrategyWidget(Widget):
              self.state = data.get('state', self.state)
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
-        if self.state:
-            return f"{self.name}({self.state})"
-        return f"{self.name}"
+        # Format config for display
+        config_str = ""
+        if self.name == "trailing_stop":
+            pct = self.config.get('trail_percent', 0)
+            config_str = f" [{pct}%]"
+        elif self.name == "take_profit":
+             pct = self.config.get('target_percent', 0)
+             config_str = f" [Take:{pct}%]"
+        
+        state_str = f"({self.state})" if self.state else ""
+        return f"\033[96m{self.name}{config_str}\033[0m{state_str}"
+
 
 class PositionWidget(Widget):
     def __init__(self, id: str, parent: 'Widget'):
@@ -117,14 +130,6 @@ class PositionWidget(Widget):
         self.entry_price = Decimal(str(data.get('entry_price', self.entry_price)))
         self.volume = Decimal(str(data.get('volume', self.volume)))
         
-        # Strategies might be passed as list of dicts/DTOs?
-        # If passed as 'strategies' list, we might need to update them here or let Dashboard route them?
-        # For now, Dashboard routes by ID. But if Position dump contains strategies, we might need to process them.
-        # But typically Position dump doesn't contain full Strategy objects? 
-        # StrategyManager manages strategies. 
-        # So Position update is mostly price/volume.
-        pass
-
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         # Render strategies
         strategy_str = ", ".join([s.render() for s in self.children.values()])
@@ -143,7 +148,9 @@ class PositionWidget(Widget):
         volume_krw = self.volume * self.entry_price
         pid_short = str(self.id)[:4]
 
-        return f"   └── Rot:  | Vol: {Won(volume_krw)}:{profit_rate_str}"
+        strategy_str = ", ".join([s.render() for s in self.children.values()])        
+
+        return f"   └── Rot:  | Vol: {Won(volume_krw)}:{profit_rate_str} | {strategy_str}"
     
 class AssetWidget(Widget):
     def __init__(self, currency: str):
@@ -201,7 +208,7 @@ class OrderWidget(Widget):
         self.ticker = None
 
     def update(self, data: Dict[str, Any]):
-        logger.info(f"Order Update: {json.dumps(data, indent=4, default=str)}")
+
         self.uuid = data.get('uuid', self.uuid)
         self.market = data.get('code', "") or data.get('market', "")
         

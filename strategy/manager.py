@@ -7,6 +7,7 @@ from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, Strate
 from strategy.base import StrategyBase
 from strategy.repository import StrategyRepository
 from account.manager import AccountBase
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,16 @@ class StrategyManager:
 
     def load_strategies(self):
         """Load active strategies from DB."""
-        dtos = self.repo.get_all(status=StrategyStatus.ACTIVE)
+        # dtos = self.repo.get_all(status=StrategyStatus.ACTIVE)
+        dtos = self.repo.get_all()
+        logger.info(f"Loading strategies from DB: {len(dtos)}")
         for dto in dtos:
             try:
+                logger.info(f"Loading strategy {dto.strategy_id} ({dto.type})")
                 self._instantiate_strategy(dto)
             except Exception as e:
-                logger.error(f"Failed to load strategy {dto.strategy_id}: {e}")
+                logger.error(f"Failed to load strategy {dto.strategy_id:8<}: {e}")
+                logger.error(traceback.format_exc())
                 # Potentially mark as ERROR in DB?
     
     def create_strategy(self, type_name: str, ticker: str, budget: Decimal, config: Dict[str, Any], position_id: Optional[str] = None) -> str:
@@ -94,15 +99,18 @@ class StrategyManager:
             strategy_id=dto.strategy_id,
             ticker=dto.ticker,
             budget=dto.budget,
-            position_id=dto.position_id
+            position_id=dto.position_id,
+            last_execution_time=dto.last_execution_time
         )
         
         instance = cls(context, config_obj)
         instance.restore_state(dto.state)
         self.strategies[dto.strategy_id] = instance
+        logger.info(f"Instantiated strategy {dto.strategy_id:8} ({dto.type})")
 
     def on_tick(self, ticker: str, price: Decimal):
         """Process price update for all relevant strategies."""
+        price = Decimal(str(price)) # Ensure Decimal
         for strategy_id, strategy in self.strategies.items():
             if strategy.context.ticker == ticker:
                 # If strategy is linked to a position, ideally we check if position is active?
@@ -115,40 +123,49 @@ class StrategyManager:
                 except Exception as e:
                     logger.error(f"Error in strategy {strategy_id}: {e}")
 
+    def on_orderbook(self, ticker: str, orderbook: Dict[str, Any]):
+        """Process orderbook update for all relevant strategies."""
+        for strategy_id, strategy in self.strategies.items():
+            if strategy.context.ticker == ticker:
+                try:
+                    signal = strategy.on_orderbook(orderbook)
+                    if signal:
+                        self.process_signal(signal)
+                        self._persist_strategy(strategy_id)
+                except Exception as e:
+                    logger.error(f"Error in strategy {strategy_id} on_orderbook: {e}")
+
     def on_schedule(self):
         """Check time-based schedules for all strategies."""
-        # Simple implementation: Loop all active strategies
-        # In production, this should be event-driven or optimized.
-        # This method is expected to be called by an external scheduler loop.
         current_time = time.time()
         
         for strategy_id, strategy in self.strategies.items():
-            # Check if strategy has execution_interval
+            should_run = False
+            
+            # 1. Interval Check
             interval = strategy.config.execution_interval
             if interval and interval > 0:
-                # Basic rate limiting / scheduling logic
-                # We need to track last execution time.
-                # Since we didn't add last_execution to DTO/Context yet, 
-                # we can store it in runtime state or strategy state.
-                # For now, let's just assume strategy.on_schedule handles its own 'should I run?' logic
-                # OR we implement it here if we want centralized control.
-                
-                # Let's delegate to strategy.on_schedule() and let strategy decide?
-                # But StrategyBase.on_schedule is just a method.
-                # Better: StrategyManager calls it if it feels like it.
-                # To do it properly, we need `last_scheduled_at` in DTO.
-                # Skip precise scheduling for now, just call it and let strategy throttle if needed
-                # OR assume this function is called once per second and we check mod? No.
-                
-                # Let's call it and trust strategy for now or add lightweight tracking.
+                # Check against last_execution in state
+                last_exec = strategy.context.last_execution_time
+                if current_time - last_exec >= interval:
+                    should_run = True
+            
+            # 2. Crontab Schedule Check (MVP Stub)
+            # if strategy.config.schedule:
+            #     # TODO: Integrate 'croniter' or similar for parsing
+            #     pass
+
+            if should_run:
                 try:
                     signal = strategy.on_schedule()
+                    
+                    # Update state with last execution time
+                    strategy.context.last_execution_time = current_time
+                    self._persist_strategy(strategy_id)
+                    
                     if signal:
                         self.process_signal(signal)
-                    
-                    # Persist state if scheduled task ran (safe default)
-                    # Or only if signal? Better to persist as time/state might have changed.
-                    self._persist_strategy(strategy_id)
+                        self._persist_strategy(strategy_id) # Persist again if signal modified state
                     
                 except Exception as e:
                     logger.error(f"Error in strategy {strategy_id} schedule: {e}")
@@ -226,6 +243,7 @@ class StrategyManager:
         if dto:
             dto.state = strategy.get_state()
             dto.updated_at = time.time()
+            dto.last_execution_time = strategy.context.last_execution_time
             self.repo.save(dto)
 
     def stop_strategy(self, strategy_id: str):

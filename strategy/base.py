@@ -41,6 +41,23 @@ class StrategyBase(ABC):
         """
         pass
 
+    def on_orderbook(self, orderbook: Dict[str, Any]) -> Optional[Signal]:
+        """
+        Called when orderbook updates.
+        Should return a Signal if an action is required, or None.
+        """
+        pass
+
+    def summary(self):
+        return {
+            'strategy_id': self.context.strategy_id,
+            'type': self.config.strategy_type,
+            'status': 'ACTIVE',
+            'config': self.config.model_dump(),
+            'position_id': self.context.position_id,
+            'ticker': self.context.ticker
+        }
+
     def emit_signal(self, signal: Signal) -> Signal:
         """Helper to emit a signal."""
         # Enforce strategy_id and ticker consistency

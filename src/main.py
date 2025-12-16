@@ -33,7 +33,7 @@ from src.position_manager import Position, PositionManager
 from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager
-from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig
+from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig, TakeProfitStrategy, TakeProfitConfig
 from strategy.models import StrategyContext
 import uuid
 
@@ -52,6 +52,53 @@ class Manager(WebsocketObserver):
         self.task_queue = Queue()
         self.counter = Counter()
         self.virtual = virtual
+
+    def init_strategy(self):
+        self.strategy_manager = StrategyManager(db_path=DB_PATH, account_manager=self.account_manager)
+        self.strategy_manager.register_strategy("trailing_stop", TrailingStopStrategy)
+        self.strategy_manager.register_strategy("take_profit", TakeProfitStrategy)
+
+        self.strategy_manager.load_strategies()
+
+    def init_positions(self):
+        
+        self.position_manager = PositionManager(db_path=DB_PATH)
+        
+        for balance in self.account_manager.get_balances():
+            ticker = Ticker(balance.get("currency"))
+            self.dashboard.update({'asset': balance})
+            if ticker.currency == "KRW":
+                continue
+
+            # position이 없으면 default position 생성   
+            if not self.position_manager.get_positions(ticker.ticker, only_active=True):
+                current_price = pyupbit.get_current_price(ticker.ticker)
+                # 총 balance의 25%를 position으로 사용
+                balance = Decimal(balance.get("balance")) * Decimal(0.25)
+                pos = self.position_manager.create_position(
+                                            ticker=ticker.ticker, 
+                                            entry_price=current_price, 
+                                            volume=balance)
+                
+                # Create Strategy Context & Config
+                context = StrategyContext(
+                    strategy_id=str(uuid.uuid4()),
+                    ticker=ticker.ticker,
+                    budget=balance, 
+                    position_id=pos.id
+                )
+                config = TrailingStopConfig(
+                    entry_price=current_price,
+                    trail_percent=Decimal("0.02") # Default 2% trailing stop
+                )
+                
+                strategy = TrailingStopStrategy(context=context, config=config)
+                self.strategy_manager.add_strategy(strategy)
+
+        # Log loaded positions
+        for pos in self.position_manager.positions.values():
+            self.dashboard.log(f"Loaded Position: {pos.ticker:<10} {pos.entry_price:<10,.0f} {pos.volume * pos.entry_price:,.0f}")
+            self.dashboard.update({'position': pos.model_dump()})
 
     def init(self, config: dict = None):
 
@@ -117,46 +164,15 @@ class Manager(WebsocketObserver):
             self.dashboard.log("Messaging Connection Failed")
 
         # Initialize Strategy Manager
-        self.strategy_manager = StrategyManager(db_path=DB_PATH, account_manager=self.account_manager)
+        self.init_strategy()
 
         # Initialize Position Manager
-        self.position_manager = PositionManager(db_path=DB_PATH)
-        for balance in balances:
-            ticker = Ticker(balance.get("currency"))
-            self.dashboard.update({'asset': balance})
-            if ticker.currency == "KRW":
-                continue
+        self.init_positions()
 
-            # position이 없으면 default position 생성   
-            if not self.position_manager.get_positions(ticker.ticker, only_active=True):
-                current_price = pyupbit.get_current_price(ticker.ticker)
-                # 총 balance의 25%를 position으로 사용
-                balance = Decimal(balance.get("balance")) * Decimal(0.25)
-                pos = self.position_manager.create_position(
-                                            ticker=ticker.ticker, 
-                                            entry_price=current_price, 
-                                            volume=balance)
-                
-                # Create Strategy Context & Config
-                context = StrategyContext(
-                    strategy_id=str(uuid.uuid4()),
-                    ticker=ticker.ticker,
-                    budget=balance, 
-                    position_id=pos.id
-                )
-                config = TrailingStopConfig(
-                    entry_price=current_price,
-                    trail_percent=Decimal("0.02") # Default 2% trailing stop
-                )
-                
-                strategy = TrailingStopStrategy(context=context, config=config)
-                self.strategy_manager.add_strategy(strategy)
-
-        # Log loaded positions
-        for pos in self.position_manager.positions.values():
-            self.dashboard.log(f"Loaded Position: {pos.ticker:<10} {pos.entry_price:<10,.0f} {pos.volume * pos.entry_price:,.0f}")
-            self.dashboard.update({'position': pos.model_dump()})
-        
+        for strategy in self.strategy_manager.strategies.values():
+            if strategy.context.position_id in self.position_manager.positions:
+                logger.info(f"Strategy {strategy.context.strategy_id} is active")
+                self.dashboard.update({'strategy': strategy.summary()})
 
     def run(self):
         self.dashboard.start() # Start Dashboard
@@ -545,6 +561,33 @@ class Manager(WebsocketObserver):
                 self.dashboard.update({'position': pos.model_dump()})
                 self.dashboard.log(f"New Position: {pos.ticker} ({pos.id[:8]})")
                 
+                # Default Strategy Creation
+                context = StrategyContext(
+                    strategy_id=str(uuid.uuid4()),
+                    ticker=pos.ticker,
+                    budget=pos.volume, 
+                    position_id=pos.id
+                )
+                config = TrailingStopConfig(
+                    entry_price=pos.entry_price,
+                    trail_percent=Decimal("0.02") 
+                )
+                
+                strategy = TrailingStopStrategy(context=context, config=config)
+                self.strategy_manager.add_strategy(strategy)
+                
+                # Send to dashboard
+                strategy_data = {
+                    'strategy_id': strategy.context.strategy_id,
+                    'type': strategy.config.strategy_type,
+                    'status': 'ACTIVE',
+                    'config': strategy.config.model_dump(),
+                    'position_id': strategy.context.position_id,
+                    'ticker': strategy.context.ticker
+                }
+                self.dashboard.update({'strategy': strategy_data})
+                self.dashboard.log(f"Attached Default TrailingStop (2%) to {pos.ticker}")
+                
         elif ask_bid == "ask" and state == "done":
             pos = self.position_manager.on_order_fill(message)
             if pos:
@@ -601,15 +644,19 @@ class Manager(WebsocketObserver):
         
         # Update Dashboard Ticker Info
         self.dashboard.update({'ticker': message})
+        
         # TODO: Strategy Manager
-        # if self.strategy_manager:
-        #     self.strategy_manager.on_ticker(ticker, current_price)
+        if self.strategy_manager:
+            self.strategy_manager.on_tick(ticker, current_price)
 
     def on_orderbook(self, message: dict):
         tiker = Ticker(message.get('code', ''))
         orderbook = message.get('orderbook_units', [])
 
         self.account_manager.check_order(tiker.ticker, orderbook)
+
+        if self.strategy_manager:
+            self.strategy_manager.on_orderbook(tiker, orderbook)
 
     def on_trade(self, message: dict):
         pass
