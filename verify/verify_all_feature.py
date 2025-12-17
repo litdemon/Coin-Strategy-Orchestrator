@@ -49,7 +49,7 @@ class TestTradingScenarios(unittest.TestCase):
         self.manager.account_manager.manager = self.db_upbit
         
         # -- 3. Hijack PositionManager to use TEST DB --
-        self.manager.position_manager = PositionManager(db_path=self.test_db_path)
+        self.manager.pocket_manager = PositionManager(db_path=self.test_db_path)
         
         # -- 4. Initial Funding --
         # Add 10,000,000 KRW and 1 BTC for testing
@@ -119,7 +119,7 @@ class TestTradingScenarios(unittest.TestCase):
         self.assertEqual(executed_order.state, "done")
         
         # Check Position
-        positions = self.manager.position_manager.get_positions("KRW-BTC")
+        positions = self.manager.pocket_manager.get_positions("KRW-BTC")
         self.assertEqual(len(positions), 1)
         self.assertFalse(positions[0].is_closed)
         # Entry price should be ask_price (50M) because order price >= ask
@@ -205,7 +205,7 @@ class TestTradingScenarios(unittest.TestCase):
         self.db_upbit.check_and_execute_orders("KRW-BTC", [{"ask_price": 50000000.0, "bid_price": 49000000.0}])
         self._process_queue()
         
-        pos = self.manager.position_manager.get_positions("KRW-BTC")[0]
+        pos = self.manager.pocket_manager.get_positions("KRW-BTC")[0]
         self.assertFalse(pos.is_closed)
         
         # 2. Sell content of position
@@ -218,7 +218,7 @@ class TestTradingScenarios(unittest.TestCase):
         
         # Verify Position Closed
         # Manager logic: on_order_fill (ask, done) -> closes position
-        positions = self.manager.position_manager.get_positions("KRW-BTC", only_active=False)
+        positions = self.manager.pocket_manager.get_positions("KRW-BTC", only_active=False)
         self.assertTrue(len(positions) > 0)
         pos = positions[0]
         
@@ -260,7 +260,7 @@ class TestTradingSystem(unittest.TestCase):
         self.manager.account_manager.manager = self.db_upbit
         
         # Initialize PositionManager with test DB
-        self.manager.position_manager = PositionManager(db_path=self.test_db_path)
+        self.manager.pocket_manager = PositionManager(db_path=self.test_db_path)
         
         # Mock Strategy Manager
         self.manager.strategy_manager = None
@@ -319,7 +319,7 @@ class TestTradingSystem(unittest.TestCase):
         self.manager.on_task(task["cls"], task["message"])
         
         # Verify Position
-        pos_list = self.manager.position_manager.get_positions(ticker)
+        pos_list = self.manager.pocket_manager.get_positions(ticker)
         self.assertTrue(len(pos_list) > 0)
         pos = pos_list[0]
         self.assertEqual(pos.volume, volume)
@@ -346,7 +346,7 @@ class TestTradingSystem(unittest.TestCase):
         
         # Verify Position Closed
         # Refresh position object
-        pos_list = self.manager.position_manager.get_positions(ticker, only_active=False)
+        pos_list = self.manager.pocket_manager.get_positions(ticker, only_active=False)
         pos = pos_list[0]
         self.assertTrue(pos.is_closed, "Position should be closed after sell")
         

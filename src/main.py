@@ -29,7 +29,7 @@ from tools.counter import Counter
 from tools.currency_print import Won
 from account.manager import AccountDBManager, AccountUpbitManager
 from src.dashboard import Dashboard
-from src.position_manager import Position, PositionManager
+from src.pocket_manager import Pocket, PocketManager, PocketObserver
 from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
@@ -51,12 +51,14 @@ class Task:
         self.cls = cls
         self.message = message
 
-class Manager(WebsocketObserver, StrategyObserver):
+class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
     def __init__(self, virtual: bool = False):
 
         self.task_queue = Queue()
         self.counter = Counter()
         self.virtual = virtual
+        self.orders = {}
+        self.current_prices = CurrentPrice()
 
     def init_strategy(self):
         self.strategy_manager = StrategyManager(db_path=DB_PATH, observer=self)
@@ -66,30 +68,10 @@ class Manager(WebsocketObserver, StrategyObserver):
         self.strategy_manager.load_strategies()
 
     def init_positions(self):
-        
-        self.position_manager = PositionManager(db_path=DB_PATH, observer=self)
-        self.position_manager.init()
-        
-        # for amount in self.account_manager.get_balances():
-        #     ticker = Ticker(amount.get("currency"))
-        #     self.dashboard.update({'asset': amount})
-        #     if ticker.currency == "KRW":
-        #         continue
-
-        #     # position이 없으면 default position 생성   
-        #     if not self.position_manager.get_positions(ticker.ticker, only_active=True):
-        #         current_price = pyupbit.get_current_price(ticker.ticker)
-        #         # 총 balance의 25%를 position으로 사용
-        #         amount = Decimal(amount.get("balance")) * Decimal(0.25)
-        #         pos = self.position_manager.create_position(
-        #                                     ticker=ticker.ticker, 
-        #                                     entry_price=current_price, 
-        #                                     volume=amount)
+        self.pocket_manager = PocketManager(db_path=DB_PATH, observer=self)
+        self.pocket_manager.init()
                 
-    def init(self, config: dict = None):
-
-        self.dashboard = Dashboard() # Initialize Dashboard
-
+    def init_account(self):
         if self.virtual:
             account_config = config.get("account", {}) if config else {}
             self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config)
@@ -98,33 +80,30 @@ class Manager(WebsocketObserver, StrategyObserver):
         else:
             self.account_manager = AccountUpbitManager(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
             self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
+        self.account_manager.init()
 
+        tickers = []
         balances = self.account_manager.get_balances()
-        all_tickers = [ Ticker(asset.get("currency")).ticker for asset in balances if asset.get("currency") != "KRW" ]
-
+        for asset in balances :
+            if asset['currency'] != 'KRW' :
+                tickers.append(asset['currency'])
+            self.on_asset_created(asset)
+        
         # Also get tickers from active orders (Limit/Market orders waiting for execution)
         orders = self.account_manager.get_orders()
         for order in orders :
-            self.dashboard.update({'order': order})
-            t_code = order.get('market', "") or order.get('code', "")
-            ticker = Ticker(t_code)
-            if ticker.ticker not in all_tickers:
-                all_tickers.append(ticker.ticker)
+            if order['market'] != 'KRW' :
+                tickers.append(order['market'])
+                self.on_order_created(order)
+        return tickers
 
-        self.upbit_websocket = UpbitWebSocket(codes=all_tickers, observer=self)
-        
-        self.current_prices = CurrentPrice()
-        
-        # Initialize Messaging System
-        # Default Config
-        mqtt_config = {
-            "broker_type": "mqtt",
-            "mqtt": {
-                "host": "mqtt.toybox7.net",
-                "port": 1883,
-                "client_id": f"strategy_manager_{int(time.time())}"
-            }
-        }
+    def init(self, config: dict = None):
+
+        self.dashboard = Dashboard() # Initialize Dashboard
+
+        tickers = self.init_account()
+            
+        self.upbit_websocket = UpbitWebSocket(codes=list(set(tickers)), observer=self)
         
         # Override with provided config if available
         if config and "messaging" in config:
@@ -144,7 +123,7 @@ class Manager(WebsocketObserver, StrategyObserver):
         self.init_positions()
 
         for strategy in self.strategy_manager.strategies.values():
-            if strategy.context.position_id in self.position_manager.positions:
+            if strategy.context.position_id in self.pocket_manager.positions:
                 logger.info(f"Strategy {strategy.context.strategy_id} is active")
                 self.dashboard.update({'strategy': strategy.summary()})
 
@@ -175,47 +154,36 @@ class Manager(WebsocketObserver, StrategyObserver):
             self.messaging.disconnect()
         self.dashboard.stop()
 
-    # -- Account Events -------------------------
-    def on_account_loaded(self, account: Account):
-        pass
-
-    def on_account_updated(self, account: Account):
-        pass
-
-    def on_account_deleted(self, account: Account):
-        pass
-
     # -- Position Events -------------------------
-    def on_position_loaded(self, position: Position):
-        self.dashboard.log(f"Loaded Position: {position.ticker:<10} {position.entry_price:<10,.0f} {position.volume * position.entry_price:,.0f}")
-        self.dashboard.update({'position': position.model_dump()})
-
+    def on_pocket_loaded(self, pocket: Pocket):
+        self.dashboard.log(f"Loaded Pocket: {pocket.ticker:<10} {pocket.entry_price:<10,.0f} {pocket.volume * pocket.entry_price:,.0f}")
+        self.dashboard.update({'pocket': pocket.model_dump()})
     
-    def on_position_created(self, position: Position):
-        self.dashboard.log(f"Created Position: {position.ticker:<10} {position.entry_price:<10,.0f} {position.volume * position.entry_price:,.0f}")
-        self.dashboard.update({'position': position.model_dump()})
+    def on_pocket_created(self, pocket: Pocket):
+        self.dashboard.log(f"Created Pocket: {pocket.ticker:<10} {pocket.entry_price:<10,.0f} {pocket.volume * pocket.entry_price:,.0f}")
+        self.dashboard.update({'pocket': pocket.model_dump()})
 
         # Default Strategy Creation
         context = StrategyContext(
             strategy_id=str(uuid.uuid4()),
-            ticker=position.ticker,
-            budget=position.volume, 
-            position_id=position.id
+            ticker=pocket.ticker,
+            budget=pocket.volume, 
+            pocket_id=pocket.id
         )
         config = TrailingStopConfig(
-            entry_price=position.entry_price,
+            entry_price=pocket.entry_price,
             trail_percent=Decimal("0.02") 
         )
         
         strategy = TrailingStopStrategy(context=context, config=config)
         self.strategy_manager.add_strategy(strategy)
 
-    def on_position_updated(self, position: Position):
-        self.dashboard.update({'position': position.model_dump()})
+    def on_pocket_updated(self, pocket: Pocket):
+        self.dashboard.update({'pocket': pocket.model_dump()})
 
-    def on_position_deleted(self, position: Position):
-        self.dashboard.update({'position': position.model_dump()})
-        self.dashboard.log(f"Position Closed: {position.ticker} ({position.id[:8]})")
+    def on_pocket_deleted(self, pocket: Pocket):
+        self.dashboard.update({'pocket': pocket.model_dump()})
+        self.dashboard.log(f"Pocket Closed: {pocket.ticker} ({pocket.id[:8]})")
 
     # -- strategy events -------------------------
     def on_strategy_created(self, strategy: StrategyBase):
@@ -301,14 +269,14 @@ class Manager(WebsocketObserver, StrategyObserver):
         '''
         StrategyManager calls this when a signal is processed.
         '''
-        position = None
+        pocket = None
         ticker = signal.ticker
         volume = signal.amount
         data = signal.data
         if data and data.get("position_id"):
-            position = self.position_manager.get_position(data.get("position_id"))
-            if position:
-                volume = position.volume
+            pocket = self.pocket_manager.get_pocket(data.get("position_id"))
+            if pocket:
+                volume = pocket.volume
 
         if signal.type == SignalType.BUY:
             order = self.account_manager.buy_market_order(ticker, volume)
@@ -329,7 +297,7 @@ class Manager(WebsocketObserver, StrategyObserver):
                 # Reply with status
                 status = {
                     "running": True,
-                    "positions": len(self.position_manager.positions),
+                    "pockets": len(self.pocket_manager.pockets),
                     "timestamp": time.time()
                 }
                 self.messaging.publish(f"trading/response/{uuid}/status", status)
@@ -449,12 +417,10 @@ class Manager(WebsocketObserver, StrategyObserver):
                     # Clean up Virtual Account Artifacts
                     self.dashboard.log(f"Cleaning up artifacts for {ticker}...")
                     
-                    # 1. Archive Positions
-                    positions = self.position_manager.get_positions(ticker)
-                    for pos in positions:
-                        self.position_manager.archive_position(pos.id)
-                        self.dashboard.update({'remove': {'id': pos.id}})
-                        self.dashboard.log(f"Archived Position: {pos.id}")
+                    # 1. Archive Pockets
+                    pockets = self.pocket_manager.get_pockets(ticker)
+                    for pocket in pockets:
+                        self.pocket_manager.archive_pocket(pocket.id)
                         
                     # 2. Archive Strategies
                     # Find strategies for this ticker
@@ -536,7 +502,7 @@ class Manager(WebsocketObserver, StrategyObserver):
                 lines.append("-" * 50)
                 
                 count = 0 
-                for pos in self.position_manager.positions.values():
+                for pos in self.pocket_manager.positions.values():
                    ticker = Ticker(pos.ticker)
                    profit_rate = (self.current_prices.get(ticker.ticker) / pos.entry_price) -1
                    uuid_short = pos.id[:6]
@@ -594,6 +560,33 @@ class Manager(WebsocketObserver, StrategyObserver):
             logger.error(f"Error processing command: {e}")
             logger.error(traceback.format_exc())
 
+        
+    # -- order events ------------------------
+    def on_order_created(self, order: dict):
+        self.dashboard.update({'order': order})
+        self.orders[order['uuid']] = order
+    
+    def on_order_updated(self, order: dict):
+        self.dashboard.update({'order': order})
+        self.orders[order['uuid']] = order
+    
+    def on_order_completed(self, order: dict):
+        self.dashboard.update({'order': order})
+
+        ask_bid = order['ask_bid']
+        # 매도 체결 완료
+        if ask_bid == "ask":
+            pass
+        # 매수 체결 완료
+        elif ask_bid == "bid":
+            self.pocket_manager.create_pocket(order)
+        else:
+            self.dashboard.log(f"Unknown ask_bid: {ask_bid}")
+   
+    def on_order_deleted(self, order: dict):
+        self.dashboard.update({'order': order})
+        
+
     def on_my_order(self, cls, message: dict):
         ticker = message['code']
         ask_bid = message['ask_bid']
@@ -604,11 +597,30 @@ class Manager(WebsocketObserver, StrategyObserver):
         krw_volume = volume * entry_price
 
         self.dashboard.log(f"Order🧾 detected {ticker}: {ask_bid}:{state} {Won(entry_price)} {Won(krw_volume)}")
-        self.dashboard.update({'order': message})
 
-        if state == "done":
-            self.position_manager.on_order_fill(OrderInfo(**message))
-        
+        if state == "wait":
+            if order.uuid not in self.orders:
+                self.on_order_created(message)
+            else:
+                self.on_order_updated(message)
+        elif state == "done":
+            self.on_order_completed(message)
+        elif state == "cancel":
+            self.on_order_deleted(message)
+            if order['uuid'] in self.orders:
+                del self.orders[order['uuid']]
+        else:
+            self.on_order_updated(message)
+
+    # -- asset events ------------------------
+    def on_asset_created(self, asset: dict):
+        self.dashboard.update({'asset': asset})
+    
+    def on_asset_updated(self, asset: dict):
+        self.dashboard.update({'asset': asset})
+    
+    def on_asset_deleted(self, asset: dict):
+        self.dashboard.update({'asset': asset})
 
     def on_my_asset(self, cls, message: dict):
         assets = message['assets']
@@ -643,15 +655,6 @@ class Manager(WebsocketObserver, StrategyObserver):
 
         if self.strategy_manager:
             self.strategy_manager.on_orderbook(tiker, orderbook)
-
-    def on_trade(self, message: dict):
-        pass
-
-    def on_order(self, message: dict):
-        pass
-
-    def on_asset(self, message: dict):
-        pass
 
     # -- Main -------------------------------------
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ class TestManagerIntegration(unittest.TestCase):
         self.manager.upbit_websocket = MagicMock(spec=UpbitWebSocket)
         self.manager.upbit_websocket.codes = ["KRW-BTC"] # Pre-subscribed
         self.manager.strategy_manager = MagicMock()
-        self.manager.position_manager = MagicMock()
+        self.manager.pocket_manager = MagicMock()
         
     def test_dynamic_subscription(self):
         """Test that buying a new ticker triggers subscription."""

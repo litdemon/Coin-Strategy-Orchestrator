@@ -12,44 +12,9 @@ from account.exceptions import InsufficientBalanceException, OrderNotFoundExcept
 from tools.ticker import Ticker
 from models.my_asset import MyAsset, AssetItem
 from abc import ABC, abstractmethod
+from models.orderInfo import OrderInfo
 
 logger = logging.getLogger(__name__)
-
-class OrderObserver(ABC):
-    def __init__(self):
-        pass
-    
-    @abstractmethod
-    def on_order_created(self, order: OrderInfo):
-        pass
-    
-    @abstractmethod
-    def on_order_updated(self, order: OrderInfo):
-        pass
-    
-    @abstractmethod
-    def on_order_completed(self, order: OrderInfo):
-        pass
-    
-    @abstractmethod
-    def on_order_deleted(self, order: OrderInfo):
-        pass
-
-class AssetObserver:
-    def __init__(self):
-        pass
-    
-    @abstractmethod
-    def on_asset_created(self, asset: AssetInfo):
-        pass
-    
-    @abstractmethod
-    def on_asset_updated(self, asset: AssetInfo):
-        pass
-    
-    @abstractmethod
-    def on_asset_deleted(self, asset: AssetInfo):
-        pass
 
 class DBUpbit:
     def __init__(self, db_path: str = "account.db", callback: Callable[[Any, dict], None] = None, config: dict = None):
@@ -67,13 +32,27 @@ class DBUpbit:
         
         # Lock for thread safety - Use RLock for reentrant locking (e.g. process_order_complete calls add_balance)
         self.lock = threading.RLock()
-        
+
+    def init(self):    
         # Initialize DB tables
         self.asset_repo.init_db()
         self.order_repo.init_db()
         
         # Synchronize locked balances
         self.synchronize_locked_balances()
+
+    def _orderDTO_to_order(self, orderDTO: OrderDTO) -> OrderInfo:
+        return OrderInfo(
+            id=orderDTO.id,
+            market=orderDTO.market,
+            side=orderDTO.side,
+            state=orderDTO.state,
+            volume=orderDTO.volume,
+            locked=orderDTO.locked,
+            avg_price=orderDTO.avg_price,
+            created_at=orderDTO.created_at,
+            updated_at=orderDTO.updated_at
+        )
 
     def synchronize_locked_balances(self):
         """
@@ -194,6 +173,7 @@ class DBUpbit:
                     "balance": new_balance,
                     "avg_buy_price": new_avg_buy_price
                 })
+
             else:
                 new_asset = AssetDTO(
                     currency=currency,

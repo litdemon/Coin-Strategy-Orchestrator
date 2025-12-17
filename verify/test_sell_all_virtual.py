@@ -95,7 +95,7 @@ class TestSellAllVirtual(unittest.TestCase):
         self.manager.account_manager.manager.add_balance(ticker, Decimal(volume), Decimal(price))
         
         # B. Create Position
-        pos = self.manager.position_manager.create_position(ticker, Decimal(price), Decimal(volume))
+        pos = self.manager.pocket_manager.create_position(ticker, Decimal(price), Decimal(volume))
         
         # C. Create Strategy
         from strategy.models import StrategyContext, StrategyConfig
@@ -122,7 +122,7 @@ class TestSellAllVirtual(unittest.TestCase):
         self.assertIsNotNone(btc_balance, "Setup failed: No BTC balance")
         self.assertTrue(float(btc_balance['balance']) > 0, "Setup failed: BTC balance is 0")
         
-        self.assertIn(pos.id, self.manager.position_manager.positions, "Setup failed: No Position")
+        self.assertIn(pos.id, self.manager.pocket_manager.positions, "Setup failed: No Position")
         self.assertIn(sid, self.manager.strategy_manager.strategies, "Setup failed: No Strategy")
         
         print("Setup complete. Executing Sell All...")
@@ -170,7 +170,7 @@ class TestSellAllVirtual(unittest.TestCase):
              print("BTC Balance is gone (Correctly filtered)")
              
         # B. Position should be archived
-        self.assertNotIn(pos.id, self.manager.position_manager.positions, "Position still in Active memory")
+        self.assertNotIn(pos.id, self.manager.pocket_manager.positions, "Position still in Active memory")
         
         # Check Archive Table
         import sqlite3

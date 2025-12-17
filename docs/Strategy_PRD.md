@@ -61,9 +61,9 @@ class StrategyDTO(BaseModel):
 - **MVP 단계**: `Manager`의 메인 루프에서 1초 단위 `tick`을 발생시키고, `StrategyManager.on_schedule()` 내부에서 각 전략의 주기(interval)를 체크하여 실행.
 - **확장**: 전략 Config에 `execution_interval` (초 단위) 또는 `cron_expression`을 필드로 추가.
 
-### 4.2 Position Linkage
-- `PositionManager`와 협업 필요.
-- 포지션 생성 시 해당 포지션을 관리할 전략(예: TrailingStop)을 함께 생성하여 `position_id`를 주입.
+### 4.2 Pocket Linkage
+- `PocketManager`와 협업 필요.
+- 포지션 생성 시 해당 포지션을 관리할 전략(예: TrailingStop)을 함께 생성하여 `pocket_id`를 주입.
 - 포지션 종료 시 해당 전략도 `stop` 및 `archive` 처리.
 
 ## 5. Sequence Flows

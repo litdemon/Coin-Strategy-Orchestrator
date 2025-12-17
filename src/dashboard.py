@@ -26,7 +26,7 @@ MAX_WIDTH = 120
 #       └── CandleWidget
 #       └── AssetWidget
 #       └── OrderWidget x N
-#       └── PositionsWidget x N
+#       └── PocketsWidget x N
 #           └── StrategyWidget x N
 class Spinner:
     def __init__(self):
@@ -120,7 +120,7 @@ class StrategyWidget(Widget):
         return f"\033[96m{self.spinner()}{self.name}{config_str}\033[0m{state_str}"
 
 
-class PositionWidget(Widget):
+class PocketWidget(Widget):
     def __init__(self, id: str, parent: 'Widget'):
         super().__init__(id, parent)
         self.entry_price = Decimal("0")
@@ -128,7 +128,7 @@ class PositionWidget(Widget):
         self.strategies: Dict[str, StrategyWidget] = {} # Map ID to Widget
 
     def update(self, data: Dict[str, Any]):
-        # data is Position dict or dump
+        # data is Pocket dict or dump
         self.entry_price = Decimal(str(data.get('entry_price', self.entry_price)))
         self.volume = Decimal(str(data.get('volume', self.volume)))
         
@@ -299,11 +299,11 @@ class TickerWidget(Widget):
         if self.asset.balance > Decimal("0"):
             output.append(with_space(f"   └── Asset | {self.asset.render(current_price_dec)} "))
         
-        # Render child widgets (Positions and Strategies)
+        # Render child widgets (Pockets and Strategies)
         if self.children:
             # Separate by type
             strategies = [w for w in self.children.values() if isinstance(w, StrategyWidget)]
-            positions = [w for w in self.children.values() if isinstance(w, PositionWidget)]
+            pockets = [w for w in self.children.values() if isinstance(w, PocketWidget)]
             
             # Render Strategies first
             if strategies:
@@ -315,8 +315,8 @@ class TickerWidget(Widget):
             for order in orders:
                 output.append(with_space(order.render(current_price_dec)))
 
-            # Render Positions
-            for pos in positions:
+            # Render Pockets
+            for pos in pockets:
                 output.append(with_space(pos.render(current_price_dec)))
 
         
@@ -341,7 +341,7 @@ class Dashboard:
         self.spinner = Spinner()
         self.orderbook_spinner = Spinner()
         self.ticker_spinner = Spinner()
-        self.position_spinner = Spinner()
+        self.pocket_spinner = Spinner()
         self.strategy_spinner = Spinner()
         self.order_spinner = Spinner()
         
@@ -396,10 +396,10 @@ class Dashboard:
                 self.orderbook_spinner.next()
                 target_id = Ticker(payload.get('code')).ticker
                 widget_type = 'ticker'
-            elif 'position' in mtype:
-                self.position_spinner.next()
+            elif 'pocket' in mtype:
+                self.pocket_spinner.next()
                 target_id = payload.get('id')
-                widget_type = 'position'
+                widget_type = 'pocket'
             elif 'strategy' in mtype:
                 self.strategy_spinner.next()
                 target_id = payload.get('strategy_id')
@@ -441,7 +441,7 @@ class Dashboard:
                 if 'ticker' in mtype or 'orderbook' in mtype:
                     return
 
-                # Create if missing (for asset, order, position, strategy)
+                # Create if missing (for asset, order, pocket, strategy)
                 self._create_widget(target_id, widget_type, payload)
             
             # 3. Update Widget
@@ -466,19 +466,19 @@ class Dashboard:
                              self._check_and_remove_ticker(widget.parent.id)
                          return # Done with this item
 
-                # 4. Cleanup Check (if Asset/Position update)
+                # 4. Cleanup Check (if Asset/Pocket update)
                 # If TickerWidget is empty (Balance 0, Locked 0, No Children), remove it.
-                if widget_type in ['asset', 'ticker', 'position']: # 'asset' handled as 'ticker' type but payload is from 'asset' msg
+                if widget_type in ['asset', 'ticker', 'pocket']: # 'asset' handled as 'ticker' type but payload is from 'asset' msg
                     # If it was an asset update, target_id is Ticker.
-                    # If it was a position update, target_id might be Position ID? 
-                    # Wait, if position update, target_id is position ID.
+                    # If it was a pocket update, target_id might be Pocket ID? 
+                    # Wait, if pocket update, target_id is pocket ID.
                     # We need to find the parent ticker to check cleanup.
                     
                     cleanup_target_id = None
                     if target_id in self.registry and isinstance(self.registry[target_id], TickerWidget):
                         cleanup_target_id = target_id
-                    elif target_id in self.registry and isinstance(self.registry[target_id], PositionWidget):
-                        # Position widget, check parent
+                    elif target_id in self.registry and isinstance(self.registry[target_id], PocketWidget):
+                        # Pocket widget, check parent
                         parent = self.registry[target_id].parent
                         if parent and isinstance(parent, TickerWidget):
                              cleanup_target_id = parent.id
@@ -498,7 +498,7 @@ class Dashboard:
         if widget.asset.balance > 0 or widget.asset.locked > 0:
             return
             
-        # Strict Check: Balance 0, Locked 0, And No Children (Orders, Positions, Strategies)
+        # Strict Check: Balance 0, Locked 0, And No Children (Orders, Pockets, Strategies)
         if not widget.children and widget.asset.balance <= 0 and widget.asset.locked <= 0:
              self.log(f"Removing empty ticker: {ticker_id}")
              del self.registry[ticker_id]
@@ -527,7 +527,7 @@ class Dashboard:
             widget.update(data)
             parent.add_child(widget)
         
-        elif w_type == 'position':
+        elif w_type == 'pocket':
             # Needs parent ticker
             ticker = Ticker(data.get('ticker')).ticker
             if ticker not in self.registry:
@@ -535,16 +535,16 @@ class Dashboard:
                  self._create_widget(ticker, 'ticker', {'code': ticker})
             
             parent = self.registry[ticker]
-            widget = PositionWidget(id, parent)
+            widget = PocketWidget(id, parent)
             parent.add_child(widget)
             
         elif w_type == 'strategy':
-            # Needs parent position OR ticker
-            # StrategyDTO has 'position_id' (optional) or 'ticker'
-            pos_id = data.get('position_id')
+            # Needs parent pocket OR ticker
+            # StrategyDTO has 'pocket_id' (optional) or 'ticker'
+            pos_id = data.get('pocket_id')
             ticker_code = data.get('ticker')
             
-            # 1. Try Position Parent
+            # 1. Try Pocket Parent
             if pos_id and pos_id in self.registry:
                 parent = self.registry[pos_id]
                 widget = StrategyWidget(id, parent)
@@ -560,8 +560,8 @@ class Dashboard:
                 widget = StrategyWidget(id, parent)
                 parent.add_child(widget)
             else:
-                # Strategy without position or ticker? Impossible to place.
-                logger.warning(f"Dashboard: Strategy {id} has no position_id or ticker. Cannot create widget.")
+                # Strategy without pocket or ticker? Impossible to place.
+                logger.warning(f"Dashboard: Strategy {id} has no pocket_id or ticker. Cannot create widget.")
                 return
 
         if widget:
@@ -607,7 +607,7 @@ class Dashboard:
         
         output = []
         output.append("=" * MAX_WIDTH)
-        info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.position_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
+        info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.pocket_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
         output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner.next()} {info}")
         output.append("=" * MAX_WIDTH)
         
