@@ -8,13 +8,13 @@ from pydantic import BaseModel, Field
 from typing import Optional, Any, List
 from decimal import Decimal
 
-class PositionBase(BaseModel):
+class PocketBase(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     ticker: str
-    entry_price: Decimal
     volume: Decimal # = budget
-    config: Optional[Any] = None
+    entry_price: Decimal
     entry_time: float = Field(default_factory=time.time)
+    config: Optional[Any] = None
     
     # Fields refactored from Rot
     order_id: Optional[str] = None
