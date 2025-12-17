@@ -54,6 +54,7 @@ class TrailingStopStrategy(StrategyBase):
                 ticker=self.context.ticker,
                 reason=f"Trailing stop triggered at {current_price}",
                 data={
+                    "position_id": self.context.position_id,
                     "stop_price": self.stop_price, 
                     "highest_price": self.highest_price
                 }

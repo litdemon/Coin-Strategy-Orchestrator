@@ -18,9 +18,42 @@ from tools.ticker import Ticker
 # Maintain DB_PATH global for compatibility/patching
 DB_PATH = "account.db"
 
-class AccountBase(ABC):
+class AccountObserver(ABC):
     def __init__(self):
         pass
+    
+    @abstractmethod
+    def on_asset_loaded(self, asset: Asset):
+        pass
+    
+    @abstractmethod
+    def on_asset_updated(self, asset: Asset):
+        pass
+    
+    @abstractmethod
+    def on_asset_deleted(self, asset: Asset):
+        pass
+
+    @abstractmethod
+    def on_order_created(self, order: OrderInfo):
+        pass
+
+    @abstractmethod
+    def on_order_updated(self, order: OrderInfo):
+        pass
+
+    @abstractmethod
+    def on_order_completed(self, order: OrderInfo):
+        pass
+
+    @abstractmethod
+    def on_order_deleted(self, order: OrderInfo):
+        pass
+
+
+class AccountBase(ABC):
+    def __init__(self, observer: AccountObserver):
+        self.observer = observer
     
     @abstractmethod
     def get_balance(self, ticker: str) -> Decimal:
@@ -70,8 +103,13 @@ class AccountBase(ABC):
 
 class AccountUpbitManager(AccountBase):
 
-    def __init__(self, access_key, secret_key):
+    def __init__(self, observer: AccountObserver, access_key, secret_key):
+        super().__init__(observer)
+
+    def init(self):
         self.upbit = pyupbit.Upbit(access_key, secret_key)
+        for balance in self.upbit.get_balances():
+            self.observer.on_asset_loaded(balance)
 
     def get_balance(self, ticker: str) -> Decimal:
         return self.upbit.get_balance(ticker)
@@ -129,9 +167,27 @@ class AccountUpbitManager(AccountBase):
 
 
 class AccountDBManager(AccountBase):
-    def __init__(self, callback: Callable[[Any, dict], None], config: dict = None):
+    def __init__(self, observer: AccountObserver, callback: Callable[[Any, dict], None], config: dict = None):
+        super().__init__(observer)
+        self.config = config
         self.manager = DBUpbit(DB_PATH, callback, config)
     
+    def init(self):
+        self.manager.init()
+        for asset in self.manager.get_balances():
+            self.observer.on_asset_loaded(asset)
+
+        # Initial Funding for Virtual Account
+        initial_balance = 0
+        if self.config and "account" in self.config and "initial_balance" in self.config["account"]:
+            initial_balance = self.config["account"]["initial_balance"]
+            
+        if initial_balance > 0 and len(self.manager.get_balances()) == 0:
+            logger.info(f"Initializing Virtual Account with {initial_balance:,.0f} KRW")
+            self.observer.on_asset_loaded("KRW", Decimal(str(initial_balance)))
+            self.manager.add_balance("KRW", Decimal(str(initial_balance)))
+
+
     def get_balance(self, ticker: str) -> Decimal:
         return self.manager.get_balance(ticker)
 

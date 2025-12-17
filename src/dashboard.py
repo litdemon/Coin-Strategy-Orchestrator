@@ -51,6 +51,7 @@ class Widget(ABC):
     def __init__(self, id: str, parent: Optional['Widget'] = None):
         self.id = id
         self.parent = parent
+        self.spinner = Spinner()
         self.children: Dict[str, 'Widget'] = {}
     
     def add_child(self, widget: 'Widget'):
@@ -106,6 +107,7 @@ class StrategyWidget(Widget):
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         # Format config for display
+        self.spinner.next()
         config_str = ""
         if self.name == "trailing_stop":
             pct = self.config.get('trail_percent', 0)
@@ -115,7 +117,7 @@ class StrategyWidget(Widget):
              config_str = f" [Take:{pct}%]"
         
         state_str = f"({self.state})" if self.state else ""
-        return f"\033[96m{self.name}{config_str}\033[0m{state_str}"
+        return f"\033[96m{self.spinner()}{self.name}{config_str}\033[0m{state_str}"
 
 
 class PositionWidget(Widget):
@@ -496,51 +498,6 @@ class Dashboard:
         if widget.asset.balance > 0 or widget.asset.locked > 0:
             return
             
-        # Condition 2: No Children (Positions/Strategies)
-        # Note: PositionWidget might be "closed" but still in children if not removed?
-        # If we rely on PositionWidget removal elsewhere, this is fine.
-        # But if PositionWidget is created, it stays in children.
-        # So we only remove if children is empty.
-        # Users might want to see closed positions for a while?
-        # User request: "When sold all (balance 0), remove ticker". 
-        # Usually implies all positions generate the Sell, so positions are closed.
-        # If we have closed positions, should we remove the Ticker?
-        # If Ticker is removed, Positions are gone too (from UI).
-        # This seems to be what user wants ("Update dashboard to remove TickerWidget").
-        
-        # However, we must ensure we don't remove if there are ACTIVE positions.
-        # PositionWidget doesn't interpret "active" vs "closed" state fully in property?
-        # Let's check if any child is a PositionWidget.
-        # Ideally, we should check if they are "active".
-        # But PositionWidget structure implies existence = relevant.
-        # If user sold all, typically positions are closed.
-        # If we implement "Remove Ticker", we implicitly remove all children.
-        
-        # Safest check: If Balance is 0 and Locked is 0.
-        # But what if I have a position but balance is 0? (Shorting? Not supported here).
-        # Or partial fill?
-        # User said "All sold, Balance 0".
-        # So if Balance is 0 and Locked is 0, we can remove.
-        # Wait, if I have an Open Order (Buy), Locked > 0. So it won't be removed. Correct.
-        # If I have Open Order (Sell), Locked > 0. Won't be removed. Correct.
-        # So checking Balance + Locked == 0 is consistent.
-        # But what if I have an active position (Wait, Sell Limit not created yet)?
-        # If I have active position, I likely have some balance (the coin).
-        # So Balance > 0. 
-        # So Balance == 0 and Locked == 0 implies no Coin holdings and no Active Sell Orders.
-        # Does it imply no Buy Orders?
-        # Buy Order locks KRW, not Coin.
-        # So KRW-BTC TickerWidget might have Balance 0, Locked 0 (Coin), but user has Buy Order for BTC.
-        # If we remove TickerWidget, we can't see the Buy Order execution on that Ticker?
-        # OrderWidget is separate? No, OrderWidget is unrelated to TickerWidget in hierarchy?
-        # Dashboard displays OrderWidgets separately in `_render`:
-        # `orders = sorted([w for w in self.registry.values() if isinstance(w, OrderWidget)], ...)`
-        # `TickerWidget` displays `Candle` and `Asset`.
-        # If we remove TickerWidget, we lose Candle view and Asset view.
-        # If I have a Buy Order, do I want to see the Ticker (Candle)? Probably yes.
-        # So we should check if there are any Orders for this ticker?
-        # `dashboard.registry` has `OrderWidget`s.
-        
         # Strict Check: Balance 0, Locked 0, And No Children (Orders, Positions, Strategies)
         if not widget.children and widget.asset.balance <= 0 and widget.asset.locked <= 0:
              self.log(f"Removing empty ticker: {ticker_id}")

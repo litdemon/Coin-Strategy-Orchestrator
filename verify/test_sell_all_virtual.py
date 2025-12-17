@@ -131,7 +131,7 @@ class TestSellAllVirtual(unittest.TestCase):
         # We call process_command directly
         
         # Mock current price for market sell estimate
-        self.manager.price_ob.update(ticker, price)
+        self.manager.current_prices.update(ticker, price)
         
         cmd_data = {
             "action": "sell",

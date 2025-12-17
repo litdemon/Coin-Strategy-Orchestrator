@@ -8,13 +8,34 @@ from strategy.base import StrategyBase
 from strategy.repository import StrategyRepository
 from account.manager import AccountBase
 import traceback
+from abc import ABC, abstractmethod
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+class StrategyObserver(ABC):
+
+    @abstractmethod
+    def on_strategy_created(self, strategy: StrategyBase):
+        pass
+
+    @abstractmethod
+    def on_strategy_signal(self, strategy: StrategyBase, signal: Signal):
+        pass
+
+    @abstractmethod
+    def on_strategy_updated(self, strategy: StrategyBase):
+        pass
+
+    @abstractmethod
+    def on_strategy_deleted(self, strategy: StrategyBase):
+        pass
+
+
 class StrategyManager:
-    def __init__(self, db_path: str, account_manager: AccountBase):
+    def __init__(self, db_path: str, observer: StrategyObserver):
         self.repo = StrategyRepository(db_path)
-        self.account_manager = account_manager
+        self.observer = observer
         self.strategies: Dict[str, StrategyBase] = {} # Active strategy instances
         self.strategy_classes: Dict[str, Type[StrategyBase]] = {}
         
@@ -57,6 +78,9 @@ class StrategyManager:
         
         self.repo.save(dto)
         self._instantiate_strategy(dto)
+
+        # callback
+        self.observer.on_strategy_created(dto)
         
         log_msg = f"Created strategy {dto.strategy_id} ({type_name}) for {ticker}"
         if position_id:
@@ -86,6 +110,10 @@ class StrategyManager:
         
         self.repo.save(dto)
         self.strategies[strategy_id] = strategy
+
+        # callback
+        self.observer.on_strategy_created(strategy)
+        
         logger.info(f"Added strategy instance {strategy_id} ({type_name})")
 
     def _instantiate_strategy(self, dto: StrategyDTO):
@@ -172,67 +200,13 @@ class StrategyManager:
 
     def process_signal(self, signal: Signal):
         """Execute actions based on signal."""
-        logger.info(f"Processing signal: {signal}")
+        logger.info(f"Processing signal: {signal.model_dump_json( )}")
         
         try:
-            if signal.type == SignalType.BUY:
-                # execute buy
-                if signal.price:
-                     self.account_manager.buy_limit_order(signal.ticker, signal.price, signal.amount)
-                else:
-                     self.account_manager.buy_market_order(signal.ticker, signal.amount)
-
-            elif signal.type == SignalType.SELL:
-                 # execute sell
-                if signal.price:
-                    self.account_manager.sell_limit_order(signal.ticker, signal.price, signal.amount)
-                else:
-                    self.account_manager.sell_market_order(signal.ticker, signal.amount)
-
-            elif signal.type == SignalType.CLOSE_POSITION:
-                # Close specific position if linked, or ticker balance
-                target_position_id = signal.data.get("position_id") or self.strategies[signal.strategy_id].context.position_id
-                
-                if target_position_id:
-                     # Specific Position Close Logic
-                     # We need to know the volume of that position.
-                     # PositionRepo? AccountManager doesn't track "Positions" with ID in the new architecture yet?
-                     # Models/position.py exists but AccountManager uses Asset/Order.
-                     # If we use strict Position ID, we need a Position Manager/Repo.
-                     # For now, fall back to Ticker close but Log the ID.
-                     logger.info(f"Closing specific position {target_position_id} (Logic falls back to ticker sell for now)")
-                
-                # Fetch current balance
-                balance = self.account_manager.get_balance(signal.ticker)
-                
-                if balance > 0:
-                    ratio = Decimal("1.0")
-                    if signal.data and "close_ratio" in signal.data:
-                         ratio = Decimal(str(signal.data["close_ratio"]))
-                    
-                    volume_to_sell = balance * ratio
-                    self.account_manager.sell_market_order(signal.ticker, volume_to_sell)
-                    logger.info(f"Closed position for {signal.ticker}: {volume_to_sell} units (Ratio: {ratio})")
-                else:
-                    logger.warning(f"Signal received to Close Position for {signal.ticker} but balance is 0.")
-
-            elif signal.type == SignalType.PARTIAL_CLOSE:
-                # Reuse logic
-                balance = self.account_manager.get_balance(signal.ticker)
-                if balance > 0:
-                    ratio = Decimal("0.5")
-                    if signal.data and "close_ratio" in signal.data:
-                         ratio = Decimal(str(signal.data["close_ratio"]))
-                    
-                    volume_to_sell = balance * ratio
-                    self.account_manager.sell_market_order(signal.ticker, volume_to_sell) 
-                    logger.info(f"Partial close {signal.ticker}: {volume_to_sell} units")
-
+            self.observer.on_strategy_signal(self, signal)
         except Exception as e:
             logger.error(f"Failed to execute signal {signal}: {e}")
             
-        # TODO: Implement actual execution logic with AccountManager
-        
     def _persist_strategy(self, strategy_id: str):
         """Save current state of strategy to DB."""
         strategy = self.strategies.get(strategy_id)
@@ -256,7 +230,10 @@ class StrategyManager:
             dto.status = StrategyStatus.STOPPED
             dto.updated_at = time.time()
             self.repo.save(dto)
-            self.repo.save(dto)
+
+            # callback
+            self.observer.on_strategy_deleted(dto)
+            
             logger.info(f"Stopped strategy {strategy_id}")
 
     def archive_strategy(self, strategy_id: str):
@@ -265,8 +242,13 @@ class StrategyManager:
             del self.strategies[strategy_id]
         
         try:
+            dto = self.repo.get(strategy_id)
             self.repo.archive(strategy_id)
             logger.info(f"Archived strategy {strategy_id}")
+
+            # callback
+            self.observer.on_strategy_deleted(dto)
+            
         except Exception as e:
             logger.error(f"Failed to archive strategy {strategy_id}: {e}")
 

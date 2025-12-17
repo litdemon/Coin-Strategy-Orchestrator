@@ -11,8 +11,45 @@ from account.repositories import AssetRepository, OrderRepository
 from account.exceptions import InsufficientBalanceException, OrderNotFoundException
 from tools.ticker import Ticker
 from models.my_asset import MyAsset, AssetItem
+from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
+
+class OrderObserver(ABC):
+    def __init__(self):
+        pass
+    
+    @abstractmethod
+    def on_order_created(self, order: OrderInfo):
+        pass
+    
+    @abstractmethod
+    def on_order_updated(self, order: OrderInfo):
+        pass
+    
+    @abstractmethod
+    def on_order_completed(self, order: OrderInfo):
+        pass
+    
+    @abstractmethod
+    def on_order_deleted(self, order: OrderInfo):
+        pass
+
+class AssetObserver:
+    def __init__(self):
+        pass
+    
+    @abstractmethod
+    def on_asset_created(self, asset: AssetInfo):
+        pass
+    
+    @abstractmethod
+    def on_asset_updated(self, asset: AssetInfo):
+        pass
+    
+    @abstractmethod
+    def on_asset_deleted(self, asset: AssetInfo):
+        pass
 
 class DBUpbit:
     def __init__(self, db_path: str = "account.db", callback: Callable[[Any, dict], None] = None, config: dict = None):

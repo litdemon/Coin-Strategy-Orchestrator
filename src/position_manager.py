@@ -16,6 +16,7 @@ from typing import Optional, List, Dict, Any, Callable
 from models.position import PositionBase
 from strategy.base import Signal
 from tools.db_interface import DBInterface
+from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,37 @@ class Position(PositionBase, DBInterface):
     #         return (self.close_price - self.entry_price) / self.entry_price
     #     return Decimal(0.0)
 
+class PositionObserver(ABC):
+    @abstractmethod
+    def on_position_loaded(self, position: Position):
+        pass
+
+    @abstractmethod
+    def on_position_created(self, position: Position):
+        pass
+
+    @abstractmethod
+    def on_position_updated(self, position: Position):
+        pass
+
+    @abstractmethod
+    def on_position_deleted(self, position: Position):
+        pass
+
+
 class PositionManager:
-    def __init__(self, db_path: str = "account.db"):
+    def __init__(self, db_path: str = "account.db", observer: PositionObserver = None):
         self.db_path = db_path
+        self.observer = observer
+        self.positions = {}
+
+    def init(self):
         Position.init_db(self.db_path)
-        self.positions: Dict[str, Position] = { p.id: p for p in Position.load_all(self.db_path) if not p.is_closed }
+
+        self.positions = { p.id: p for p in Position.load_all(self.db_path) if not p.is_closed }
+        if self.observer:
+            for pos in self.positions.values():
+                self.observer.on_position_loaded(pos)
 
     def create_position(self, ticker: str, entry_price: float, volume: float):
         """
@@ -47,6 +74,10 @@ class PositionManager:
         pos = Position(ticker=ticker, entry_price=entry_price, volume=volume)    
         self.positions[pos.id] = pos
         pos.save(self.db_path)
+        
+        if self.observer:
+            self.observer.on_position_created(pos)
+        
         logger.info(f"[PositionManager] Created Position from Order: {pos.ticker}")
         return pos
 
@@ -115,6 +146,7 @@ class PositionManager:
             try:
                 # DBInterface.archive() moves to archive table and deletes from main
                 pos.archive(self.db_path) 
+                self.observer.on_position_deleted(pos)
                 del self.positions[position_id]
                 logger.info(f"[PositionManager] Archived Position {position_id}")
             except Exception as e:
