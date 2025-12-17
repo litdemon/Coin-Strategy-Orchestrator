@@ -174,7 +174,8 @@ class TestSellAllVirtual(unittest.TestCase):
         
         # Check Archive Table
         import sqlite3
-        with sqlite3.connect(TEST_DB) as conn:
+        import contextlib
+        with contextlib.closing(sqlite3.connect(TEST_DB)) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM pockets_archive WHERE id = ?", (pos.id,))
             row = cursor.fetchone()
@@ -187,7 +188,7 @@ class TestSellAllVirtual(unittest.TestCase):
         # C. Strategy should be archived
         self.assertNotIn(sid, self.manager.strategy_manager.strategies, "Strategy still in Active memory")
         
-        with sqlite3.connect(TEST_DB) as conn:
+        with contextlib.closing(sqlite3.connect(TEST_DB)) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM strategies_archive WHERE strategy_id = ?", (sid,))
             row = cursor.fetchone()

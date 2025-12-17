@@ -4,6 +4,7 @@ import sys
 import logging
 import time
 import threading
+import gc
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -59,6 +60,11 @@ class TestTradingScenarios(unittest.TestCase):
         self.db_upbit.add_balance("KRW-BTC", Decimal("1"), Decimal("50000000"))
 
     def tearDown(self):
+        # Force garbage collection
+        self.manager = None
+        self.db_upbit = None
+        gc.collect()
+
         if os.path.exists(self.test_db_path):
             os.remove(self.test_db_path)
 
@@ -323,6 +329,9 @@ class TestTradingSystem(unittest.TestCase):
         self.db_upbit.add_balance("KRW", Decimal("100000000")) # 100M KRW
 
     def tearDown(self):
+        self.manager = None
+        gc.collect()
+
         if os.path.exists(self.test_db_path):
             os.remove(self.test_db_path)
 
@@ -423,6 +432,7 @@ class TestInitialBalance(unittest.TestCase):
     def tearDown(self):
         self.patcher_manager_db.stop()
         self.patcher_main_db.stop()
+        gc.collect()
         
         if os.path.exists(self.test_db):
             os.remove(self.test_db)
@@ -530,6 +540,9 @@ class TestWebSocketSync(unittest.TestCase):
     def tearDown(self):
         self.patcher_manager.stop()
         self.patcher_main.stop()
+        self.db = None
+        gc.collect()
+        
         if os.path.exists(self.test_db_path):
             os.remove(self.test_db_path)
 

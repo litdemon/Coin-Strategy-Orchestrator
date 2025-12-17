@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import contextlib
 from typing import List, Optional
 from decimal import Decimal
 from strategy.models import StrategyDTO, StrategyStatus
@@ -9,7 +10,7 @@ class StrategyRepository:
         self.db_path = db_path
 
     def init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS strategies (
@@ -48,7 +49,7 @@ class StrategyRepository:
             conn.commit()
 
     def save(self, strategy: StrategyDTO):
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO strategies 
@@ -75,7 +76,7 @@ class StrategyRepository:
         if not dto:
             return
 
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             cursor = conn.cursor()
             
             # Insert into archive
@@ -106,7 +107,7 @@ class StrategyRepository:
             conn.commit()
 
     def get(self, strategy_id: str) -> Optional[StrategyDTO]:
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM strategies WHERE strategy_id = ?", (strategy_id,))
@@ -117,7 +118,7 @@ class StrategyRepository:
             return None
 
     def get_all(self, status: Optional[StrategyStatus] = None) -> List[StrategyDTO]:
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             

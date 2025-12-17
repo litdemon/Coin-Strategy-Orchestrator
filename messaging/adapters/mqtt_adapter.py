@@ -3,6 +3,7 @@ import logging
 import uuid
 from typing import Callable, Any, Dict, List
 import paho.mqtt.client as mqtt
+from paho.mqtt.enums import CallbackAPIVersion
 from ..interface import MessagingClient
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ class MqttAdapter(MessagingClient):
         self.port = port
         self.client_id = client_id or f"trading_client_{uuid.uuid4().hex[:8]}"
         
-        self.client = mqtt.Client(client_id=self.client_id)
+        self.client = mqtt.Client(client_id=self.client_id, callback_api_version=CallbackAPIVersion.VERSION2)
         
         if username and password:
             self.client.username_pw_set(username, password)
@@ -29,18 +30,18 @@ class MqttAdapter(MessagingClient):
         self.message_callbacks: Dict[str, Callable] = {}
         self.is_connected = False
         
-    def _on_connect(self, client, userdata, flags, rc):
-        if rc == 0:
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
             logger.info(f"✅ MQTT Connected: {self.client_id}")
             self.is_connected = True
             # Resubscribe to existing topics connection is re-established
             for topic, _ in self.message_callbacks.items():
                 self.client.subscribe(topic)
         else:
-            logger.error(f"❌ MQTT Connection failed with code {rc}")
+            logger.error(f"❌ MQTT Connection failed with code {reason_code}")
             self.is_connected = False
 
-    def _on_disconnect(self, client, userdata, rc):
+    def _on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         logger.warning(f"⚠️  MQTT Disconnected: {self.client_id}")
         self.is_connected = False
 
