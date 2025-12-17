@@ -28,6 +28,7 @@ from tools.converter import Decimal2float
 from tools.counter import Counter
 from tools.currency_print import Won
 from account.manager import AccountDBManager, AccountUpbitManager
+from account.dbupbit import DBUpbit
 from src.dashboard import Dashboard
 from src.pocket_manager import Pocket, PocketManager, PocketObserver
 from src.current_price import CurrentPrice
@@ -67,11 +68,11 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
         self.strategy_manager.load_strategies()
 
-    def init_positions(self):
+    def init_pockets(self):
         self.pocket_manager = PocketManager(db_path=DB_PATH, observer=self)
         self.pocket_manager.init()
                 
-    def init_account(self):
+    def init_account(self, config: dict = None):
         if self.virtual:
             account_config = config.get("account", {}) if config else {}
             self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config)
@@ -86,7 +87,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         balances = self.account_manager.get_balances()
         for asset in balances :
             if asset['currency'] != 'KRW' :
-                tickers.append(asset['currency'])
+                tickers.append(Ticker(asset['currency']).ticker)
             self.on_asset_created(asset)
         
         # Also get tickers from active orders (Limit/Market orders waiting for execution)
@@ -101,9 +102,20 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
         self.dashboard = Dashboard() # Initialize Dashboard
 
-        tickers = self.init_account()
+        tickers = self.init_account(config)
             
         self.upbit_websocket = UpbitWebSocket(codes=list(set(tickers)), observer=self)
+        
+        # Override with provided config if available
+        # Default Config
+        mqtt_config = {
+            "broker_type": "mqtt",
+            "mqtt": {
+                "host": "mqtt.toybox7.net",
+                "port": 1883,
+                "client_id": f"strategy_manager_{int(time.time())}"
+            }
+        }
         
         # Override with provided config if available
         if config and "messaging" in config:
@@ -119,11 +131,11 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         # Initialize Strategy Manager
         self.init_strategy()
 
-        # Initialize Position Manager - Position needs to be initialized after strategy
-        self.init_positions()
+        # Initialize Pocket Manager - Pocket needs to be initialized after strategy
+        self.init_pockets()
 
         for strategy in self.strategy_manager.strategies.values():
-            if strategy.context.position_id in self.pocket_manager.positions:
+            if strategy.context.pocket_id in self.pocket_manager.pockets:
                 logger.info(f"Strategy {strategy.context.strategy_id} is active")
                 self.dashboard.update({'strategy': strategy.summary()})
 
@@ -138,12 +150,10 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         while not is_stop:
             try:
                 task = self.task_queue.get()
-                is_stop = self.on_task(**task)
+                is_stop = self.on_task(task)
             except Exception as e:
                 logger.error(f"Error processing task: {e}")
-                # traceback
-                
-                logger.error(traceback.format_exc())
+                logging.error(traceback.format_exc())
         logger.info("Task queue is empty")
 
     def stop(self):
@@ -154,7 +164,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             self.messaging.disconnect()
         self.dashboard.stop()
 
-    # -- Position Events -------------------------
+    # -- Pocket Events -------------------------
     def on_pocket_loaded(self, pocket: Pocket):
         self.dashboard.log(f"Loaded Pocket: {pocket.ticker:<10} {pocket.entry_price:<10,.0f} {pocket.volume * pocket.entry_price:,.0f}")
         self.dashboard.update({'pocket': pocket.model_dump()})
@@ -187,18 +197,18 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
     # -- strategy events -------------------------
     def on_strategy_created(self, strategy: StrategyBase):
-        self.dashboard.update({'strategy': strategy.model_dump()})
+        self.dashboard.update({'strategy': strategy.summary()})
 
     def on_strategy_signal(self, strategy: StrategyBase, signal: Signal):
-        self.dashboard.update({'strategy': strategy.model_dump()})
+        self.dashboard.update({'strategy': strategy.summary()})
 
         self.task_queue.put(Task(cls=strategy, message=signal.model_dump()))
 
     def on_strategy_updated(self, strategy: StrategyBase):
-        self.dashboard.update({'strategy': strategy.model_dump()})
+        self.dashboard.update({'strategy': strategy.summary()})
 
     def on_strategy_deleted(self, strategy: StrategyBase):
-        self.dashboard.update({'strategy': strategy.model_dump()})
+        self.dashboard.update({'strategy': strategy.summary()})
 
     # -- WebSocket Events -------------------------
     def on_ws_opened(self, cls):
@@ -247,7 +257,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                     
             else:
                 raise Exception(f"Unknown message type: {task.message['type']} from {task.cls}")
-        elif isinstance(task.cls, UpbitWebSocketPrivate):
+        elif isinstance(task.cls, UpbitWebSocketPrivate) or isinstance(task.cls, DBUpbit):
 
             if task.message["type"] == "myOrder":
                 self.on_my_order(task.cls, task.message)
@@ -260,21 +270,21 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 self.process_command(task.message["topic"], task.message["data"])
             else:
                 self.dashboard.log(f"Unknown msg type from Messaging: {task.message['type']}")
-        elif isinstance(task.cls, StrategyManager):
+        elif isinstance(task.cls, StrategyBase):
             self.on_signal_processing(task.cls, task.message)
         else:
-            raise Exception(f"Unknown class: {task.cls}")
+            raise Exception(f"Unknown class: {task.message['type']} from {task.cls}")
 
-    def on_signal_processing(self, strategy: StrategyBase, signal: Signal):
+    def on_signal_processing(self, strategy: StrategyBase, signal: dict):
         '''
         StrategyManager calls this when a signal is processed.
         '''
         pocket = None
-        ticker = signal.ticker
-        volume = signal.amount
-        data = signal.data
-        if data and data.get("position_id"):
-            pocket = self.pocket_manager.get_pocket(data.get("position_id"))
+        ticker = signal['ticker']
+        volume = signal['amount']
+        data = signal['data']
+        if data and data.get("pocket_id"):
+            pocket = self.pocket_manager.get_pocket(data.get("pocket_id"))
             if pocket:
                 volume = pocket.volume
 
@@ -359,7 +369,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                      self.dashboard.log(f"Invalid Buy Price: {price}. Must be positive for Limit Order.")
                      return
 
-                self.dashboard.log(f"CMD BUY: {ticker.ticker} {volume} @ {'Market' if is_market else price}")
+                self.dashboard.log(f"CMD BUY: {ticker.currency} {ticker.volume(volume)} @ {'Market' if is_market else price}")
                 
                 # Trigger buy via account_manager
                 if is_market:
@@ -367,7 +377,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 else:
                     order = self.account_manager.buy_limit_order(ticker.ticker, price, volume)
                 
-                self.dashboard.log(f"Order Placed: {order}")
+                self.dashboard.log(f"Order Placed: {json.dumps(order, indent=4)}")
                 
             elif action == "sell":
                 # Implement Sell Logic or delegate
@@ -492,10 +502,10 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 self.dashboard.log("CMD POSITIONS Request")
                 reply_to = data.get("reply_to")
                 
-                # Gather positions handled by PositionManager? Or Account Assets?
+                # Gather positions handled by PocketManager? Or Account Assets?
                 # User asked for "position list". Usually means active positions tracking profits.
-                # StrategyManager / PositionManager has them.
-                # Let's list PositionManager active positions.
+                # StrategyManager / PocketManager has them.
+                # Let's list PocketManager active positions.
                 
                 lines = []
                 lines.append(f"{'UUID':<8} | {'Ticker':<10} | {'ROI':<8} | {'Vol':<12}")
@@ -573,13 +583,17 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
     def on_order_completed(self, order: dict):
         self.dashboard.update({'order': order})
 
+        ticker = Ticker(order['code'])
+        price = Decimal(str(order['price']))
+        volume = Decimal(str(order['volume']))
+
         ask_bid = order['ask_bid']
         # 매도 체결 완료
         if ask_bid == "ask":
-            pass
+            self.pocket_manager.close_pockets_by_ticker(ticker.ticker, price, volume)
         # 매수 체결 완료
         elif ask_bid == "bid":
-            self.pocket_manager.create_pocket(order)
+            self.pocket_manager.create_pocket(ticker.ticker, price, volume)
         else:
             self.dashboard.log(f"Unknown ask_bid: {ask_bid}")
    
@@ -588,18 +602,12 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         
 
     def on_my_order(self, cls, message: dict):
-        ticker = message['code']
-        ask_bid = message['ask_bid']
-        state = message['state']
-        entry_price = Decimal(message.get('price', 0))
-        volume = Decimal(message.get('volume', 0))
-        
-        krw_volume = volume * entry_price
 
-        self.dashboard.log(f"Order🧾 detected {ticker}: {ask_bid}:{state} {Won(entry_price)} {Won(krw_volume)}")
+        state = message['state']
+        uuid = message['uuid']
 
         if state == "wait":
-            if order.uuid not in self.orders:
+            if uuid not in self.orders:
                 self.on_order_created(message)
             else:
                 self.on_order_updated(message)
@@ -607,8 +615,8 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             self.on_order_completed(message)
         elif state == "cancel":
             self.on_order_deleted(message)
-            if order['uuid'] in self.orders:
-                del self.orders[order['uuid']]
+            if uuid in self.orders:
+                del self.orders[uuid]
         else:
             self.on_order_updated(message)
 
@@ -626,10 +634,10 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         assets = message['assets']
         for asset in assets:
             ticker = Ticker(asset['currency'])
-            dbasset = self.account_manager.get_asset_balance(ticker)
+            dbasset = self.account_manager.get_asset_balance(ticker.ticker)
             
             self.dashboard.update({'asset': dbasset})
-            self.dashboard.log(f"Asset Update: {ticker.amount(dbasset.balance)} by myAsset")
+            self.dashboard.log(f"Asset Update: {ticker.amount(dbasset['balance'])} by myAsset")
           
 
     def on_ticker(self, message: dict):

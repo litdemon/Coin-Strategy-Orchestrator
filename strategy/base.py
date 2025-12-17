@@ -54,7 +54,7 @@ class StrategyBase(ABC):
             'type': self.config.strategy_type,
             'status': 'ACTIVE',
             'config': self.config.model_dump(),
-            'position_id': self.context.position_id,
+            'pocket_id': self.context.pocket_id,
             'ticker': self.context.ticker
         }
 

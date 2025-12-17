@@ -12,14 +12,20 @@ from strategy.manager import StrategyManager
 from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig
 from strategy.models import StrategyContext
 
+class MockStrategyObserver:
+    def on_strategy_created(self, strategy): pass
+    def on_strategy_signal(self, strategy, signal): pass
+    def on_strategy_updated(self, strategy): pass
+    def on_strategy_deleted(self, strategy): pass
+
 class TestStrategyPersistence(unittest.TestCase):
     def setUp(self):
         self.db_path = "test_strategy_persist.db"
         if os.path.exists(self.db_path):
             os.remove(self.db_path)
         
-        self.account_manager = MagicMock()
-        self.manager = StrategyManager(db_path=self.db_path, account_manager=self.account_manager)
+        self.observer = MockStrategyObserver()
+        self.manager = StrategyManager(db_path=self.db_path, observer=self.observer)
         
     def tearDown(self):
         if os.path.exists(self.db_path):
@@ -32,7 +38,7 @@ class TestStrategyPersistence(unittest.TestCase):
             strategy_id="test-strat-1",
             ticker="KRW-BTC",
             budget=Decimal("10000"),
-            position_id="pos-1"
+            pocket_id="pos-1"
         )
         config = TrailingStopConfig(
             entry_price=Decimal("50000000"),
@@ -45,13 +51,8 @@ class TestStrategyPersistence(unittest.TestCase):
         # 2. Simulate Restart (New Manager instance)
         del self.manager
         
-        new_manager = StrategyManager(db_path=self.db_path, account_manager=self.account_manager)
+        new_manager = StrategyManager(db_path=self.db_path, observer=self.observer)
         new_manager.register_strategy("trailing_stop", TrailingStopStrategy)
-        # Assuming load_strategies is called manually or in init? 
-        # StrategyManager usually loads in init or explicit method.
-        # Let's check StrategyManager definition if needed. 
-        # Usually we call load_strategies() or it's auto.
-        # Based on verify_strategy.py, it called load_strategies().
         new_manager.load_strategies()
         
         # 3. Verify Loaded Strategy
@@ -61,7 +62,7 @@ class TestStrategyPersistence(unittest.TestCase):
         self.assertIsInstance(loaded_strat, TrailingStopStrategy)
         self.assertEqual(loaded_strat.context.ticker, "KRW-BTC")
         self.assertEqual(loaded_strat.config.trail_percent, Decimal("0.05"))
-        self.assertEqual(loaded_strat.context.position_id, "pos-1")
+        self.assertEqual(loaded_strat.context.pocket_id, "pos-1")
 
 if __name__ == "__main__":
     unittest.main()

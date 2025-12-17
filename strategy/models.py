@@ -15,7 +15,7 @@ class SignalType(str, Enum):
     BUY = "buy"
     SELL = "sell"
     UPDATE_STOP = "update_stop"
-    CLOSE_POSITION = "close_position" # Explicit close
+    CLOSE_POCKET = "close_pocket" # Explicit close
     PARTIAL_CLOSE = "partial_close"
 
 class Signal(BaseModel):
@@ -44,7 +44,7 @@ class StrategyDTO(BaseModel):
     type: str
     ticker: str
     budget: Decimal
-    position_id: Optional[str] = None # Optional link to a specific position
+    pocket_id: Optional[str] = None # Optional link to a specific pocket
     status: StrategyStatus = StrategyStatus.ACTIVE
     config: Dict[str, Any]
     state: Dict[str, Any]
@@ -63,7 +63,7 @@ class StrategyContext(BaseModel):
     strategy_id: str
     ticker: str
     budget: Decimal
-    position_id: Optional[str] = None
+    pocket_id: Optional[str] = None
     last_execution_time: float = 0.0
     
     class Config:

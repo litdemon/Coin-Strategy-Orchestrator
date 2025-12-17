@@ -114,7 +114,7 @@ def main():
     cancel_parser = subparsers.add_parser("cancel", help="Cancel Order")
     cancel_parser.add_argument("target", help="Order UUID or Ticker to cancel all")
 
-    # Positions
+    # Pockets
     subparsers.add_parser("positions", help="List active strategy positions")
 
     # Orders

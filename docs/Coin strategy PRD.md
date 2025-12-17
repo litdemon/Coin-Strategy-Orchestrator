@@ -120,5 +120,5 @@ raw_context_json
 ## 10. Open Questions
 - Local DB 선택?
 - Strategy Template 저장 구조?
-- Position State 위치?
+- Pocket State 위치?
 - Multi-thread vs async?

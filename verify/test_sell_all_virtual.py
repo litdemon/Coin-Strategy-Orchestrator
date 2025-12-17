@@ -76,7 +76,7 @@ class TestSellAllVirtual(unittest.TestCase):
             os.remove(TEST_DB)
             
     def test_sell_all(self):
-        # 1. Setup: Buy dummy coin to create Position, Strategy, Balance
+        # 1. Setup: Buy dummy coin to create Pocket, Strategy, Balance
         ticker = "KRW-BTC"
         price = 100000000.0
         volume = 0.01 # 1M KRW worth
@@ -89,12 +89,12 @@ class TestSellAllVirtual(unittest.TestCase):
         self.manager.account_manager.manager.add_balance("KRW", Decimal("10000000")) 
         self.manager.account_manager.buy_limit_order(ticker, Decimal(price), Decimal(volume))
         
-        # 2. Simulate Order Fill (to trigger Position creation)
+        # 2. Simulate Order Fill (to trigger Pocket creation)
         
         # A. Create Balance
         self.manager.account_manager.manager.add_balance(ticker, Decimal(volume), Decimal(price))
         
-        # B. Create Position
+        # B. Create Pocket
         pos = self.manager.pocket_manager.create_position(ticker, Decimal(price), Decimal(volume))
         
         # C. Create Strategy
@@ -113,7 +113,7 @@ class TestSellAllVirtual(unittest.TestCase):
             ticker=ticker,
             budget=Decimal(volume),
             config={"strategy_type": "mock"}, # Added required field
-            position_id=pos.id
+            pocket_id=pos.id
         )
         
         # Verify Setup
@@ -122,7 +122,7 @@ class TestSellAllVirtual(unittest.TestCase):
         self.assertIsNotNone(btc_balance, "Setup failed: No BTC balance")
         self.assertTrue(float(btc_balance['balance']) > 0, "Setup failed: BTC balance is 0")
         
-        self.assertIn(pos.id, self.manager.pocket_manager.positions, "Setup failed: No Position")
+        self.assertIn(pos.id, self.manager.pocket_manager.positions, "Setup failed: No Pocket")
         self.assertIn(sid, self.manager.strategy_manager.strategies, "Setup failed: No Strategy")
         
         print("Setup complete. Executing Sell All...")
@@ -169,8 +169,8 @@ class TestSellAllVirtual(unittest.TestCase):
         else:
              print("BTC Balance is gone (Correctly filtered)")
              
-        # B. Position should be archived
-        self.assertNotIn(pos.id, self.manager.pocket_manager.positions, "Position still in Active memory")
+        # B. Pocket should be archived
+        self.assertNotIn(pos.id, self.manager.pocket_manager.positions, "Pocket still in Active memory")
         
         # Check Archive Table
         import sqlite3
@@ -178,11 +178,11 @@ class TestSellAllVirtual(unittest.TestCase):
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM positions_archive WHERE id = ?", (pos.id,))
             row = cursor.fetchone()
-            self.assertIsNotNone(row, "Position not found in Archive DB")
+            self.assertIsNotNone(row, "Pocket not found in Archive DB")
             
             cursor.execute("SELECT * FROM positions WHERE id = ?", (pos.id,))
             row_active = cursor.fetchone()
-            self.assertIsNone(row_active, "Position still in Active DB")
+            self.assertIsNone(row_active, "Pocket still in Active DB")
             
         # C. Strategy should be archived
         self.assertNotIn(sid, self.manager.strategy_manager.strategies, "Strategy still in Active memory")

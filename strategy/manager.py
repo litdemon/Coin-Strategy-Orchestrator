@@ -61,7 +61,7 @@ class StrategyManager:
                 logger.error(traceback.format_exc())
                 # Potentially mark as ERROR in DB?
     
-    def create_strategy(self, type_name: str, ticker: str, budget: Decimal, config: Dict[str, Any], position_id: Optional[str] = None) -> str:
+    def create_strategy(self, type_name: str, ticker: str, budget: Decimal, config: Dict[str, Any], pocket_id: Optional[str] = None) -> str:
         """Create and start a new strategy."""
         if type_name not in self.strategy_classes:
             raise ValueError(f"Unknown strategy type: {type_name}")
@@ -70,7 +70,7 @@ class StrategyManager:
             type=type_name,
             ticker=ticker,
             budget=budget,
-            position_id=position_id,
+            pocket_id=pocket_id,
             config=config,
             state={},
             status=StrategyStatus.ACTIVE
@@ -83,8 +83,8 @@ class StrategyManager:
         self.observer.on_strategy_created(dto)
         
         log_msg = f"Created strategy {dto.strategy_id} ({type_name}) for {ticker}"
-        if position_id:
-            log_msg += f" (Position: {position_id})"
+        if pocket_id:
+            log_msg += f" (Pocket: {pocket_id})"
         logger.info(log_msg)
         return dto.strategy_id
 
@@ -102,7 +102,7 @@ class StrategyManager:
             type=type_name,
             ticker=strategy.context.ticker,
             budget=strategy.context.budget,
-            position_id=strategy.context.position_id,
+            pocket_id=strategy.context.pocket_id,
             config=strategy.config.model_dump(), # Assuming Pydantic model
             state=strategy.get_state(),
             status=StrategyStatus.ACTIVE
@@ -127,7 +127,7 @@ class StrategyManager:
             strategy_id=dto.strategy_id,
             ticker=dto.ticker,
             budget=dto.budget,
-            position_id=dto.position_id,
+            pocket_id=dto.pocket_id,
             last_execution_time=dto.last_execution_time
         )
         
@@ -250,14 +250,15 @@ class StrategyManager:
             self.observer.on_strategy_deleted(dto)
             
         except Exception as e:
-            logger.error(f"Failed to archive strategy {strategy_id}: {e}")
+            logger.error(f"Failed to archive strategy {strategy_id:8}: {e}")
+            logger.warning(traceback.format_exc())
 
-    def load_strategies_by_position_id(self, position_id: str) -> List[str]:
+    def load_strategies_by_pocket_id(self, pocket_id: str) -> List[str]:
         """
-        Check active strategies and return list of strategy types linked to the position_id.
+        Check active strategies and return list of strategy types linked to the pocket_id.
         """
         return [
             s.config.strategy_type 
             for s in self.strategies.values() 
-            if s.context.position_id == position_id
+            if s.context.pocket_id == pocket_id
         ]

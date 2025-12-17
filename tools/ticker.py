@@ -41,6 +41,10 @@ class Ticker(TickerBase):
         if self.currency == "KRW":
             return self.currency
         return f"{self.unit_currency}-{self.currency}"
+    
+    @property
+    def market(self):
+        return self.ticker
 
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, Ticker):

@@ -13,9 +13,9 @@
 - **Ticker (Coin) 연관성**:
   - 모든 전략은 특정 Ticker (e.g., `KRW-BTC`)와 연관됩니다.
   - 해당 Ticker의 실시간 가격(Trade) 또는 호가(Orderbook) 변동 시 관련 전략들이 트리거됩니다.
-- **Position (Debt) 연관성 (Optional)**:
-  - 전략은 특정 `position_id`와 연결될 수 있습니다. (주로 청산/손절/익절 전략)
-  - `position_id`가 없는 전략은 진입(Buy) 전략이나 글로벌 모니터링 전략으로 간주됩니다.
+- **Pocket (Debt) 연관성 (Optional)**:
+  - 전략은 특정 `pocket_id`와 연결될 수 있습니다. (주로 청산/손절/익절 전략)
+  - `pocket_id`가 없는 전략은 진입(Buy) 전략이나 글로벌 모니터링 전략으로 간주됩니다.
 
 ### 2.3 Monitoring & Execution
 - **Signal Check**:
@@ -34,7 +34,7 @@ class StrategyDTO(BaseModel):
     strategy_id: str          # UUID
     type: str                 # Strategy Class Name (e.g., "TrailingStop")
     ticker: str               # Target Coin (e.g., "KRW-BTC")
-    position_id: Optional[str]# Linked Position ID (None if entry strategy)
+    pocket_id: Optional[str]# Linked Pocket ID (None if entry strategy)
     budget: Decimal           # Assigned Budget (for entry strategies)
     config: Dict[str, Any]    # Strategy-specific configuration
     state: Dict[str, Any]     # Runtime state (serialized)
@@ -47,7 +47,7 @@ class StrategyDTO(BaseModel):
 ### 3.2 Interfaces
 
 #### IStrategyManager
-- `create_strategy(type, ticker, config, position_id=None)`: 전략 생성
+- `create_strategy(type, ticker, config, pocket_id=None)`: 전략 생성
 - `stop_strategy(strategy_id)`: 전략 중지
 - `archive_strategy(strategy_id)`: 전략 보관 (DB 이동/삭제)
 - `on_tick(ticker, price)`: 가격 변동 이벤트 핸들러

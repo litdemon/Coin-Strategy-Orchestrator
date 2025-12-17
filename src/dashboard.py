@@ -452,19 +452,19 @@ class Dashboard:
                 # Check for Order Completion/Cancellation
                 if widget_type == 'order':
                     if widget.state in ['done', 'cancel']:
-                         self.log(f"Removing completed order: {target_id} ({widget.state})")
-                         # Remove from parent
-                         if widget.parent and hasattr(widget.parent, 'children'):
-                             if target_id in widget.parent.children:
-                                 del widget.parent.children[target_id]
-                         
-                         # Remove from registry
-                         del self.registry[target_id]
-                         
-                         # Check cleanup for parent
-                         if widget.parent:
-                             self._check_and_remove_ticker(widget.parent.id)
-                         return # Done with this item
+                        self.log(f"Removing completed order: id:{target_id:8} ({widget.state})")
+                        # Remove from parent
+                        if widget.parent and hasattr(widget.parent, 'children'):
+                            if target_id in widget.parent.children:
+                                del widget.parent.children[target_id]
+                        
+                        # Remove from registry
+                        del self.registry[target_id]
+                        
+                        # Check cleanup for parent
+                        if widget.parent:
+                            self._check_and_remove_ticker(widget.parent.id)
+                        return # Done with this item
 
                 # 4. Cleanup Check (if Asset/Pocket update)
                 # If TickerWidget is empty (Balance 0, Locked 0, No Children), remove it.

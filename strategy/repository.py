@@ -17,7 +17,7 @@ class StrategyRepository:
                     type TEXT NOT NULL,
                     ticker TEXT NOT NULL,
                     budget TEXT NOT NULL,
-                    position_id TEXT,
+                    pocket_id TEXT,
                     status TEXT NOT NULL,
                     config JSON NOT NULL,
                     state JSON NOT NULL,
@@ -35,7 +35,7 @@ class StrategyRepository:
                     type TEXT NOT NULL,
                     ticker TEXT NOT NULL,
                     budget TEXT NOT NULL,
-                    position_id TEXT,
+                    pocket_id TEXT,
                     status TEXT NOT NULL,
                     config JSON NOT NULL,
                     state JSON NOT NULL,
@@ -52,14 +52,14 @@ class StrategyRepository:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO strategies 
-                (strategy_id, type, ticker, budget, position_id, status, config, state, created_at, updated_at, last_execution_time)
+                (strategy_id, type, ticker, budget, pocket_id, status, config, state, created_at, updated_at, last_execution_time)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 strategy.strategy_id,
                 strategy.type,
                 strategy.ticker,
                 str(strategy.budget),
-                strategy.position_id,
+                strategy.pocket_id,
                 strategy.status,
                 json.dumps(strategy.config, default=str),
                 json.dumps(strategy.state, default=str),
@@ -84,14 +84,14 @@ class StrategyRepository:
             
             cursor.execute("""
                 INSERT OR REPLACE INTO strategies_archive
-                (strategy_id, type, ticker, budget, position_id, status, config, state, created_at, updated_at, last_execution_time, archived_at)
+                (strategy_id, type, ticker, budget, pocket_id, status, config, state, created_at, updated_at, last_execution_time, archived_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 dto.strategy_id,
                 dto.type,
                 dto.ticker,
                 str(dto.budget),
-                dto.position_id,
+                dto.pocket_id,
                 "ARCHIVED", 
                 json.dumps(dto.config, default=str),
                 json.dumps(dto.state, default=str),
@@ -139,7 +139,7 @@ class StrategyRepository:
             type=row['type'],
             ticker=row['ticker'],
             budget=Decimal(row['budget']),
-            position_id=row['position_id'],
+            pocket_id=row['pocket_id'],
             status=StrategyStatus(row['status']),
             config=json.loads(row['config']),
             state=json.loads(row['state']),

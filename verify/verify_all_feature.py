@@ -13,7 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.main import Manager
 from account.manager import AccountDBManager
 from account.dbupbit import DBUpbit
-from src.position_manager import PositionManager
+from src.pocket_manager import PocketManager
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver
 
 # Configure logging to capture output during tests if needed, 
@@ -43,13 +43,15 @@ class TestTradingScenarios(unittest.TestCase):
         # -- 2. Hijack AccountDBManager to use TEST DB --
         # DBUpbit with test DB
         self.db_upbit = DBUpbit(db_path=self.test_db_path, callback=self.manager.on_ws_message)
+        self.db_upbit.init()
         
         # Manually initialize account_manager
         self.manager.account_manager = AccountDBManager(callback=self.manager.on_ws_message)
         self.manager.account_manager.manager = self.db_upbit
         
-        # -- 3. Hijack PositionManager to use TEST DB --
-        self.manager.pocket_manager = PositionManager(db_path=self.test_db_path)
+        # -- 3. Hijack PocketManager to use TEST DB --
+        self.manager.pocket_manager = PocketManager(db_path=self.test_db_path)
+        self.manager.pocket_manager.init()
         
         # -- 4. Initial Funding --
         # Add 10,000,000 KRW and 1 BTC for testing
@@ -64,7 +66,7 @@ class TestTradingScenarios(unittest.TestCase):
         """Process all pending tasks in Manager queue"""
         while not self.manager.task_queue.empty():
             task = self.manager.task_queue.get()
-            self.manager.on_task(**task)
+            self.manager.on_task(task)
 
     def _execute_limit_buy(self, ticker, price, amount_krw):
         # Calculate volume from amount_krw
@@ -91,8 +93,8 @@ class TestTradingScenarios(unittest.TestCase):
         
         # Verification
         self.assertIsNotNone(order)
-        self.assertEqual(order.state, "wait")
-        self.assertEqual(order.locked, Decimal(str(amount_krw * 1.0005))) # Fee check? DBUpbit adds fee? 
+        self.assertEqual(order['state'], "wait")
+        self.assertEqual(Decimal(str(order['locked'])), Decimal(str(amount_krw * 1.0005))) # Fee check? DBUpbit adds fee? 
         # DBUpbit logic: lock_amount = price * volume * 1.0005 (approx)
         
         # Check KRW Balance (Locked)
@@ -102,7 +104,7 @@ class TestTradingScenarios(unittest.TestCase):
 
     def test_B02_B03_market_buy_position_creation(self):
         """B-02 & B-03: 시장가 매수 / 매수 체결 및 포지션 생성"""
-        print("\n[Test] B-02/B-03: Market Buy & Position Creation (Simulated via Limit Execution)")
+        print("\n[Test] B-02/B-03: Market Buy & Pocket Creation (Simulated via Limit Execution)")
         # Simulating Market Buy by using Limit Order with immediate execution
         # (Since our DBUpbit.check_and_execute_orders handles both)
         
@@ -118,12 +120,12 @@ class TestTradingScenarios(unittest.TestCase):
         self.assertIsNotNone(executed_order)
         self.assertEqual(executed_order.state, "done")
         
-        # Check Position
-        positions = self.manager.pocket_manager.get_positions("KRW-BTC")
-        self.assertEqual(len(positions), 1)
-        self.assertFalse(positions[0].is_closed)
+        # Check Pocket
+        pockets = self.manager.pocket_manager.get_pockets("KRW-BTC")
+        self.assertEqual(len(pockets), 1)
+        self.assertFalse(pockets[0].is_closed)
         # Entry price should be ask_price (50M) because order price >= ask
-        self.assertEqual(positions[0].entry_price, Decimal("50000000.0"))
+        self.assertEqual(pockets[0].entry_price, Decimal("50000000.0"))
 
     def test_B04_insufficient_balance(self):
         """B-04: 잔고 부족 매수"""
@@ -136,16 +138,19 @@ class TestTradingScenarios(unittest.TestCase):
 
     # --- 2. Cancel Order Tests ---
     
-    def test_C01_cancel_active_order(self):
-        """C-01: 활성 주문 취소"""
-        print("\n[Test] C-01: Cancel Active Order")
+    def test_C01_cancel_order(self):
+        """C-01: 주문 취소 (대기 주문)"""
+        print("\n[Test] C-01: Cancel Order (Wait)")
         
-        # Create Order
-        order = self._execute_limit_buy("KRW-BTC", 50000000.0, 1000000.0)
-        initial_balance = self.db_upbit.get_balance("KRW")
+        # Limit Buy -> Wait
+        order = self._execute_limit_buy("KRW-BTC", 50000000.0, 1000000.0) # 0.02 BTC
+        self.assertIsNotNone(order)
+        self.assertEqual(order['state'], "wait")
         
         # Cancel
-        cancelled_order = self.manager.account_manager.cancel_order(order.uuid)
+        initial_balance = self.db_upbit.get_balance("KRW")
+        
+        cancelled_order = self.manager.account_manager.cancel_order(order['uuid'])
         self._process_queue()
         
         self.assertEqual(cancelled_order.state, "cancel")
@@ -170,7 +175,7 @@ class TestTradingScenarios(unittest.TestCase):
         # Or checking DBUpbit implementation:
         # if order.state == "wait": cancel... else return order.
         
-        result_order = self.manager.account_manager.cancel_order(order.uuid)
+        result_order = self.manager.account_manager.cancel_order(order['uuid'])
         self.assertEqual(result_order.state, "done")
 
 
@@ -187,9 +192,9 @@ class TestTradingScenarios(unittest.TestCase):
         order = self._execute_limit_sell("KRW-BTC", price, volume)
         
         self.assertIsNotNone(order)
-        self.assertEqual(order.state, "wait")
-        self.assertEqual(order.side, "ask")
-        self.assertEqual(order.locked, Decimal(str(volume)))
+        self.assertEqual(order['state'], "wait")
+        self.assertEqual(order['ask_bid'], "ask")
+        self.assertEqual(Decimal(str(order['locked'])), Decimal(str(volume)))
         
         # Check BTC Balance
         btc_balance = self.db_upbit.get_balance("KRW-BTC")
@@ -198,14 +203,14 @@ class TestTradingScenarios(unittest.TestCase):
 
     def test_S02_sell_execution_closes_position(self):
         """S-02: 매도 체결 시 포지션 종료"""
-        print("\n[Test] S-02: Sell Execution Closes Position")
+        print("\n[Test] S-02: Sell Execution Closes Pocket")
         
-        # 1. Create Position first (Buy)
+        # 1. Create Pocket first (Buy)
         buy_order = self._execute_limit_buy("KRW-BTC", 50000000.0, 1000000.0) # 0.02 BTC
         self.db_upbit.check_and_execute_orders("KRW-BTC", [{"ask_price": 50000000.0, "bid_price": 49000000.0}])
         self._process_queue()
         
-        pos = self.manager.pocket_manager.get_positions("KRW-BTC")[0]
+        pos = self.manager.pocket_manager.get_pockets("KRW-BTC")[0]
         self.assertFalse(pos.is_closed)
         
         # 2. Sell content of position
@@ -216,14 +221,14 @@ class TestTradingScenarios(unittest.TestCase):
         self.db_upbit.check_and_execute_orders("KRW-BTC", [{"ask_price": 61000000.0, "bid_price": 60000000.0}])
         self._process_queue()
         
-        # Verify Position Closed
+        # Verify Pocket Closed
         # Manager logic: on_order_fill (ask, done) -> closes position
-        positions = self.manager.pocket_manager.get_positions("KRW-BTC", only_active=False)
+        positions = self.manager.pocket_manager.get_pockets("KRW-BTC", only_active=False)
         self.assertTrue(len(positions) > 0)
         pos = positions[0]
         
         self.assertTrue(pos.is_closed)
-        print(f" -> Position Closed confirm")
+        print(f" -> Pocket Closed confirm")
 
     def test_S04_insufficient_asset_sell(self):
         """S-04: 보유 수량 초과 매도"""
@@ -235,10 +240,57 @@ class TestTradingScenarios(unittest.TestCase):
             self._execute_limit_sell("KRW-BTC", 60000000.0, 2.0)
 
 
+
+    def test_S03_partial_close_and_sorting(self):
+        """S-03: Partial Close & Sorting (Lowest Price First)"""
+        print("\n[Test] S-03: Partial Close & Sorting")
+        
+        # 1. Create two pockets with different prices
+        # P1: 1 BTC @ 10M
+        # P2: 1 BTC @ 20M
+        
+        # Using Limit Buy:
+        # Buy 1 BTC @ 10M
+        self.db_upbit.add_balance("KRW", Decimal("40000000")) # funding
+        
+        # Order 1
+        self._execute_limit_buy("KRW-BTC", 10000000.0, 10000000.0) # 1 BTC
+        self.db_upbit.check_and_execute_orders("KRW-BTC", [{"ask_price": 10000000.0, "bid_price": 9000000.0}])
+        self._process_queue()
+        
+        # Order 2
+        self._execute_limit_buy("KRW-BTC", 20000000.0, 20000000.0) # 1 BTC
+        self.db_upbit.check_and_execute_orders("KRW-BTC", [{"ask_price": 20000000.0, "bid_price": 1900000.0}])
+        self._process_queue()
+        
+        pockets = self.manager.pocket_manager.get_pockets("KRW-BTC")
+        self.assertEqual(len(pockets), 2)
+        
+        # 2. Sell 1.5 BTC
+        # Should close P1 (1.0) and partial close P2 (0.5)
+        # Because P1 entry is 10M < P2 20M.
+        
+        self.manager.account_manager.sell_market_order("KRW-BTC", Decimal("1.5"))
+        # Execute Sell
+        self.db_upbit.check_and_execute_orders("KRW-BTC", [{"ask_price": 30000000.0, "bid_price": 30000000.0}])
+        self._process_queue()
+        
+        # Verify
+        active_pockets = self.manager.pocket_manager.get_pockets("KRW-BTC")
+        self.assertEqual(len(active_pockets), 1)
+        
+        remaining = active_pockets[0]
+        # P1 (10M) should be gone. P2 (20M) should remain with 0.5
+        self.assertEqual(remaining.entry_price, Decimal("20000000.0"))
+        self.assertEqual(remaining.volume, Decimal("0.5"))
+        
+        print(" -> Verified: Lower entry price closed first, higher entry price partially closed.")
+
 class TestTradingSystem(unittest.TestCase):
     """
-    End-to-End System Flow (Order -> Exec -> Position -> Sell -> Close)
+    End-to-End System Flow (Order -> Exec -> Pocket -> Sell -> Close)
     """
+
     def setUp(self):
         self.test_db_path = "test_system.db"
         if os.path.exists(self.test_db_path):
@@ -254,13 +306,15 @@ class TestTradingSystem(unittest.TestCase):
         # -- 2. Hijack AccountDBManager to use TEST DB --
         # DBUpbit with test DB
         self.db_upbit = DBUpbit(db_path=self.test_db_path, callback=self.manager.on_ws_message)
+        self.db_upbit.init()
         
         # Manually initialize account_manager
         self.manager.account_manager = AccountDBManager(callback=self.manager.on_ws_message)
         self.manager.account_manager.manager = self.db_upbit
         
-        # Initialize PositionManager with test DB
-        self.manager.pocket_manager = PositionManager(db_path=self.test_db_path)
+        # Initialize PocketManager with test DB
+        self.manager.pocket_manager = PocketManager(db_path=self.test_db_path)
+        self.manager.pocket_manager.init()
         
         # Mock Strategy Manager
         self.manager.strategy_manager = None
@@ -278,7 +332,7 @@ class TestTradingSystem(unittest.TestCase):
         while time.time() - start < timeout:
             if not self.manager.task_queue.empty():
                 task = self.manager.task_queue.get()
-                msg = task['message']
+                msg = task.message 
                 if msg['type'] == event_type:
                     if state and msg.get("state") != state:
                         continue
@@ -300,7 +354,7 @@ class TestTradingSystem(unittest.TestCase):
         # Check 'wait' event
         task = self.consume_event("myOrder", state="wait")
         self.assertIsNotNone(task, "Failed to receive Order (wait) event")
-        print(f" -> Order Created: {task['message']['uuid']}")
+        print(f" -> Order Created: {task.message['uuid']}")
         
         # 2. Market Execution (Simulate Orderbook)
         print(f"[2] Simulating Market Price Movement (Orderbook matching)...")
@@ -313,17 +367,17 @@ class TestTradingSystem(unittest.TestCase):
         # Check 'done' event
         task = self.consume_event("myOrder", state="done")
         self.assertIsNotNone(task, "Failed to receive Order (done) event")
-        print(f" -> Order Executed: {task['message']['uuid']}")
+        print(f" -> Order Executed: {task.message['uuid']}")
         
-        # Process event -> Creates Position
-        self.manager.on_task(task["cls"], task["message"])
+        # Process event -> Creates Pocket
+        self.manager.on_task(task)
         
-        # Verify Position
-        pos_list = self.manager.pocket_manager.get_positions(ticker)
+        # Verify Pocket
+        pos_list = self.manager.pocket_manager.get_pockets(ticker)
         self.assertTrue(len(pos_list) > 0)
         pos = pos_list[0]
         self.assertEqual(pos.volume, volume)
-        print(f" -> Position Created: {pos.id} Vol:{pos.volume}")
+        print(f" -> Pocket Created: {pos.id} Vol:{pos.volume}")
         
         # 4. Sell Command (Market Sell All)
         print(f"[3] Selling All (Market Order)...")
@@ -341,14 +395,14 @@ class TestTradingSystem(unittest.TestCase):
         self.assertIsNotNone(task, "Failed to receive Sell Order (done) event")
         print(f" -> Sell Executed")
         
-        # Process event -> Closes Position
-        self.manager.on_task(task["cls"], task["message"])
+        # Process event -> Closes Pocket
+        self.manager.on_task(task)
         
-        # Verify Position Closed
+        # Verify Pocket Closed
         # Refresh position object
-        pos_list = self.manager.pocket_manager.get_positions(ticker, only_active=False)
+        pos_list = self.manager.pocket_manager.get_pockets(ticker, only_active=False)
         pos = pos_list[0]
-        self.assertTrue(pos.is_closed, "Position should be closed after sell")
+        self.assertTrue(pos.is_closed, "Pocket should be closed after sell")
         
         print("[PASS] Full System Flow Verified")
 
@@ -468,6 +522,7 @@ class TestWebSocketSync(unittest.TestCase):
         
         # Setup DB with active order and asset
         self.db = DBUpbit(db_path=self.test_db_path)
+        self.db.init()
         self.db.add_balance("KRW", Decimal("10000000"))
         self.db.create_order("KRW-XRP", "bid", "limit", Decimal("1000"), Decimal("100")) # Order only
         self.db.add_balance("KRW-BTC", Decimal("1"), Decimal("50000000")) # Asset

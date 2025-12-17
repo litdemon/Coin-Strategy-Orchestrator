@@ -14,7 +14,7 @@ class TestStrategy(unittest.TestCase):
     def test_trailing_stop_logic(self):
         """Test TrailingStopStrategy signal generation."""
         # 1. Setup
-        context = StrategyContext(strategy_id="test", ticker="KRW-BTC", budget=Decimal("100000"), position_id="pos1")
+        context = StrategyContext(strategy_id="test", ticker="KRW-BTC", budget=Decimal("100000"), pocket_id="pos1")
         config = TrailingStopConfig(entry_price=Decimal("100"), trail_percent=Decimal("0.05")) # 5% trail
         
         strategy = TrailingStopStrategy(context=context, config=config)

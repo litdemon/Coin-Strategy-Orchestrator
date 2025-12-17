@@ -186,7 +186,7 @@ class AccountDBManager(AccountBase):
     def get_orderbook(self, ticker: str) -> List[dict]:
         return pyupbit.get_orderbook(ticker)
 
-    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> OrderDTO:
+    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> dict:
         return self.manager.create_order(
             market=ticker,
             side="ask",
@@ -195,8 +195,8 @@ class AccountDBManager(AccountBase):
             volume=volume
         )
     
-    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> OrderDTO:
-        return self.manager.create_order(
+    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> dict:
+        order = self.manager.create_order(
             market=ticker,
             side="bid",
             ord_type="limit",
@@ -204,7 +204,9 @@ class AccountDBManager(AccountBase):
             volume=volume
         )
     
-    def buy_market_order(self, ticker: str, volume: Decimal) -> OrderDTO:
+        return order
+    
+    def buy_market_order(self, ticker: str, volume: Decimal) -> dict:
         # For validation, we need an estimated price.
         # Fetch current price from pyupbit (or self.get_current_price)
         current_price = self.get_current_price(ticker) or Decimal("0")
