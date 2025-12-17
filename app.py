@@ -28,11 +28,12 @@ def setup_logging(console: bool = True):
     )
     
     # Also print to console
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    formatter = logging.Formatter(log_format, datefmt=time_format)
-    console.setFormatter(formatter)
-    logging.getLogger('').addHandler(console)
+    if console:
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+        formatter = logging.Formatter(log_format, datefmt=time_format)
+        console.setFormatter(formatter)
+        logging.getLogger('').addHandler(console)
 
 def main():
     parser = argparse.ArgumentParser(description="Coin Strategy Bot")

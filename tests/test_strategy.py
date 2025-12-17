@@ -38,7 +38,7 @@ class TestStrategy(unittest.TestCase):
         # Price -> 113 (Drop below 114). CLOSE signal.
         signal = strategy.on_tick(Decimal("113"))
         self.assertIsNotNone(signal)
-        self.assertEqual(signal.type, SignalType.CLOSE_POSITION)
+        self.assertEqual(signal.type, SignalType.CLOSE_POCKET)
         self.assertEqual(signal.ticker, "KRW-BTC")
         print("[PASS] Trailing Stop triggered correctly at 113 (High 120, Stop 114)")
 

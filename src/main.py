@@ -249,6 +249,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 market = task.message['code']
                 price = task.message['trade_price']
                 self.current_prices.update(market, price)
+                
                 if self.current_prices.is_updated(market):
                     self.on_ticker(task.message)
 
@@ -650,9 +651,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         ticker = message['code']
         current_price = message['trade_price']
 
-        self.current_prices.update(ticker, current_price)
-        if not self.current_prices.is_updated(ticker):
-            return
+        logger.info(f"Ticker Update: {ticker} {current_price}")
         
         # Update Dashboard Ticker Info
         self.dashboard.update({'ticker': message})

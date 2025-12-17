@@ -148,6 +148,9 @@ class StrategyManager:
                     if signal:
                         self.process_signal(signal)
                         self._persist_strategy(strategy_id)
+                    elif strategy.is_updated:
+                        self._persist_strategy(strategy_id)
+                        strategy.is_updated = False # Reset flag
                 except Exception as e:
                     logger.error(f"Error in strategy {strategy_id}: {e}")
 
@@ -160,6 +163,9 @@ class StrategyManager:
                     if signal:
                         self.process_signal(signal)
                         self._persist_strategy(strategy_id)
+                    elif strategy.is_updated:
+                        self._persist_strategy(strategy_id)
+                        strategy.is_updated = False
                 except Exception as e:
                     logger.error(f"Error in strategy {strategy_id} on_orderbook: {e}")
 
@@ -191,9 +197,14 @@ class StrategyManager:
                     strategy.context.last_execution_time = current_time
                     self._persist_strategy(strategy_id)
                     
+                    self._persist_strategy(strategy_id)
+                    
                     if signal:
                         self.process_signal(signal)
                         self._persist_strategy(strategy_id) # Persist again if signal modified state
+                    elif strategy.is_updated:
+                        self._persist_strategy(strategy_id)
+                        strategy.is_updated = False
                     
                 except Exception as e:
                     logger.error(f"Error in strategy {strategy_id} schedule: {e}")
@@ -219,6 +230,9 @@ class StrategyManager:
             dto.updated_at = time.time()
             dto.last_execution_time = strategy.context.last_execution_time
             self.repo.save(dto)
+            
+            # Notify observer of update (e.g. Dashboard)
+            self.observer.on_strategy_updated(strategy)
 
     def stop_strategy(self, strategy_id: str):
         """Stop a strategy."""

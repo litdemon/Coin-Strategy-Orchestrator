@@ -46,10 +46,22 @@ class TrailingStopStrategy(StrategyBase):
             if self.activated:
                 self.stop_price = self.highest_price * (Decimal("1") - self.config.trail_percent)
 
+            # Update Display and Check for changes
+            new_display = f"stop:{self.stop_price:.0f} high:{self.highest_price:.0f}"
+            if self.display != new_display:
+                self.display = new_display
+                self.is_updated = True
+                
+            if self.activated:
+                self.is_updated = True # Force update if active to show progress? Or only if values change?
+                # Actually display check covers values.
+                # But activation state change?
+                pass
+
         # Check Stop Condition
         if self.activated and self.stop_price and current_price <= self.stop_price:
             return self.emit_signal(Signal(
-                type=SignalType.CLOSE_POSITION,
+                type=SignalType.CLOSE_POCKET,
                 strategy_id=self.context.strategy_id,
                 ticker=self.context.ticker,
                 reason=f"Trailing stop triggered at {current_price}",
@@ -102,7 +114,7 @@ class TakeProfitStrategy(StrategyBase):
         if profit_percent >= self.config.target_percent:
             self.triggered = True
             
-            signal_type = SignalType.PARTIAL_CLOSE if self.config.partial else SignalType.CLOSE_POSITION
+            signal_type = SignalType.PARTIAL_CLOSE if self.config.partial else SignalType.CLOSE_POCKET
             data = {"price": current_price}
             if self.config.partial:
                 data["close_ratio"] = self.config.partial_ratio
@@ -145,7 +157,7 @@ class StopLossStrategy(StrategyBase):
             
         if current_price <= self.stop_price:
             return self.emit_signal(Signal(
-                type=SignalType.CLOSE_POSITION,
+                type=SignalType.CLOSE_POCKET,
                 strategy_id=self.context.strategy_id,
                 ticker=self.context.ticker,
                 reason=f"Stop loss triggered at {current_price}",

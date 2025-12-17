@@ -6,10 +6,13 @@ from strategy.models import StrategyContext, StrategyConfig, Signal
 class StrategyBase(ABC):
     """Abstract Base Class for all trading strategies."""
     
+    
     def __init__(self, context: StrategyContext, config: StrategyConfig):
         self.context = context
         self.config = config
         self.signals: list[Signal] = []
+        self.display: str = "Nothing"
+        self.is_updated: bool = False
 
     @abstractmethod
     def on_tick(self, current_price: Decimal) -> Optional[Signal]:
@@ -55,7 +58,8 @@ class StrategyBase(ABC):
             'status': 'ACTIVE',
             'config': self.config.model_dump(),
             'pocket_id': self.context.pocket_id,
-            'ticker': self.context.ticker
+            'ticker': self.context.ticker,
+            'display': self.display
         }
 
     def emit_signal(self, signal: Signal) -> Signal:

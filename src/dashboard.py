@@ -91,13 +91,18 @@ class StrategyWidget(Widget):
         self.name = "Unknown"
         self.state = ""
         self.config = {}
+        self.display = ""
 
     def update(self, data: Dict[str, Any]):
-        logger.info(f"Strategy Update: {json.dumps(data, indent=4, default=str)}")
+        self.spinner.next()
+        # logger.info(f"Strategy Update: {json.dumps(data, indent=4, default=str)}")
         # data is StrategyDTO or dict
         self.name = data.get('type', self.name)
         self.state = data.get('status', self.state)
         self.config = data.get('config', self.config)
+        self.display = data.get('display', self.display)
+        
+        logger.debug(f"Strategy Update: {self.name}")
         
         # Handle simple dict update too
         if 'strategy' in data: # legacy or simple dict
@@ -107,17 +112,9 @@ class StrategyWidget(Widget):
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         # Format config for display
-        self.spinner.next()
-        config_str = ""
-        if self.name == "trailing_stop":
-            pct = self.config.get('trail_percent', 0)
-            config_str = f" [{pct}%]"
-        elif self.name == "take_profit":
-             pct = self.config.get('target_percent', 0)
-             config_str = f" [Take:{pct}%]"
         
-        state_str = f"({self.state})" if self.state else ""
-        return f"\033[96m{self.spinner()}{self.name}{config_str}\033[0m{state_str}"
+
+        return f"\033[96m{self.spinner()} {self.name}[{self.display}]\033[0m"
 
 
 class PocketWidget(Widget):
@@ -152,7 +149,7 @@ class PocketWidget(Widget):
 
         strategy_str = ", ".join([s.render() for s in self.children.values()])        
 
-        return f"   └── Rot:  | Vol: {Won(volume_krw)}:{profit_rate_str} | {strategy_str}"
+        return f"   └─ Pocket | Vol: {Won(volume_krw)}:{profit_rate_str} | {strategy_str}"
     
 class AssetWidget(Widget):
     def __init__(self, currency: str):
@@ -250,7 +247,7 @@ class OrderWidget(Widget):
         # Fee calculation (estimation 0.05%)
         fee = total * Decimal("0.0005") 
         
-        return f"   └── Order: {color}{sidestr:<4}\033[0m | {self.ticker.ticker:<10} | Vol: {self.volume:,.4f} | Fee: {fee:,.0f} | Price: {self.price:,.0f}"
+        return f"   └─ Order: {color}{sidestr:<4}\033[0m | {self.ticker.ticker:<10} | Vol: {self.volume:,.4f} | Fee: {fee:,.0f} | Price: {self.price:,.0f}"
 
 class TickerWidget(Widget):
     
@@ -297,7 +294,7 @@ class TickerWidget(Widget):
         candle_str = f"{self.spinner()} {self.candle.render()} {Won(current_price_dec)}"
         output.append(with_space(f" {self.coin.ticker:11} | {candle_str}"))
         if self.asset.balance > Decimal("0"):
-            output.append(with_space(f"   └── Asset | {self.asset.render(current_price_dec)} "))
+            output.append(with_space(f"   └─ Asset | {self.asset.render(current_price_dec)} "))
         
         # Render child widgets (Pockets and Strategies)
         if self.children:
@@ -370,6 +367,7 @@ class Dashboard:
         
     # -- Internal Processing --
     def _process_item(self, data: Dict[str, Any]):
+        self.spinner.next()
         with self.lock:
             # 1. Identify Target Widget ID
             target_id = None
@@ -435,7 +433,6 @@ class Dashboard:
                 self.log(f"Dashboard: Could not identify target ID for data: {data.keys()}")
                 return
 
-            # 2. Find or Create Widget
             # 2. Find or Create Widget
             if target_id not in self.registry:
                 if 'ticker' in mtype or 'orderbook' in mtype:
@@ -608,7 +605,7 @@ class Dashboard:
         output = []
         output.append("=" * MAX_WIDTH)
         info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.pocket_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
-        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner.next()} {info}")
+        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner()} {info}")
         output.append("=" * MAX_WIDTH)
         
         with self.lock:
