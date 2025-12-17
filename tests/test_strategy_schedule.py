@@ -8,7 +8,7 @@ from decimal import Decimal
 sys.path.append(os.getcwd())
 from strategy.models import StrategyContext, StrategyConfig, StrategyDTO
 from strategy.base import StrategyBase
-from strategy.manager import StrategyManager
+from strategy.manager import StrategyManager, StrategyObserver
 from account.manager import AccountBase
 
 class MockStrategy(StrategyBase):
@@ -26,11 +26,11 @@ import shutil
 
 class TestStrategySchedule(unittest.TestCase):
     def setUp(self):
-        self.account_manager = MagicMock(spec=AccountBase)
+        self.mock_observer = MagicMock(spec=StrategyObserver)
         # Use temp dir/file for testing to ensure persistence across connections
         self.test_dir = tempfile.mkdtemp()
         self.db_path = os.path.join(self.test_dir, "test_strategy.db")
-        self.manager = StrategyManager(self.db_path, self.account_manager)
+        self.manager = StrategyManager(self.db_path, self.mock_observer)
         self.manager.register_strategy("MockStrategy", MockStrategy)
 
     def tearDown(self):

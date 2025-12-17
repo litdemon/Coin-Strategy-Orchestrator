@@ -95,7 +95,7 @@ class TestSellAllVirtual(unittest.TestCase):
         self.manager.account_manager.manager.add_balance(ticker, Decimal(volume), Decimal(price))
         
         # B. Create Pocket
-        pos = self.manager.pocket_manager.create_position(ticker, Decimal(price), Decimal(volume))
+        pos = self.manager.pocket_manager.create_pocket(ticker, Decimal(price), Decimal(volume))
         
         # C. Create Strategy
         from strategy.models import StrategyContext, StrategyConfig
@@ -122,7 +122,7 @@ class TestSellAllVirtual(unittest.TestCase):
         self.assertIsNotNone(btc_balance, "Setup failed: No BTC balance")
         self.assertTrue(float(btc_balance['balance']) > 0, "Setup failed: BTC balance is 0")
         
-        self.assertIn(pos.id, self.manager.pocket_manager.positions, "Setup failed: No Pocket")
+        self.assertIn(pos.id, self.manager.pocket_manager.pockets, "Setup failed: No Pocket")
         self.assertIn(sid, self.manager.strategy_manager.strategies, "Setup failed: No Strategy")
         
         print("Setup complete. Executing Sell All...")
@@ -170,17 +170,17 @@ class TestSellAllVirtual(unittest.TestCase):
              print("BTC Balance is gone (Correctly filtered)")
              
         # B. Pocket should be archived
-        self.assertNotIn(pos.id, self.manager.pocket_manager.positions, "Pocket still in Active memory")
+        self.assertNotIn(pos.id, self.manager.pocket_manager.pockets, "Pocket still in Active memory")
         
         # Check Archive Table
         import sqlite3
         with sqlite3.connect(TEST_DB) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM positions_archive WHERE id = ?", (pos.id,))
+            cursor.execute("SELECT * FROM pockets_archive WHERE id = ?", (pos.id,))
             row = cursor.fetchone()
             self.assertIsNotNone(row, "Pocket not found in Archive DB")
             
-            cursor.execute("SELECT * FROM positions WHERE id = ?", (pos.id,))
+            cursor.execute("SELECT * FROM pockets WHERE id = ?", (pos.id,))
             row_active = cursor.fetchone()
             self.assertIsNone(row_active, "Pocket still in Active DB")
             
