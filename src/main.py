@@ -7,6 +7,12 @@ import json
 import traceback
 from decimal import Decimal
 
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return str(obj)
+        return super(DecimalEncoder, self).default(obj)
+
 # Add project root to sys.path if not present
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -377,7 +383,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 else:
                     order = self.account_manager.buy_limit_order(ticker.ticker, price, volume)
                 
-                self.dashboard.log(f"Order Placed: {json.dumps(order, indent=4)}")
+                # self.dashboard.log(f"Order Placed: {order.get('side')}: {order.get('price')} @ {order.get('volume')}")
                 
             elif action == "sell":
                 # Implement Sell Logic or delegate
@@ -498,21 +504,21 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                     else:
                         self.dashboard.log(f"Order Cancel Failed or Not Found: {target_uuid}")
 
-            elif action == "positions":
-                self.dashboard.log("CMD POSITIONS Request")
+            elif action == "pockets":
+                self.dashboard.log("CMD POCKETS Request")
                 reply_to = data.get("reply_to")
                 
-                # Gather positions handled by PocketManager? Or Account Assets?
-                # User asked for "position list". Usually means active positions tracking profits.
+                # Gather pockets handled by PocketManager? Or Account Assets?
+                # User asked for "pocket list". Usually means active pockets tracking profits.
                 # StrategyManager / PocketManager has them.
-                # Let's list PocketManager active positions.
+                # Let's list PocketManager active pockets.
                 
                 lines = []
                 lines.append(f"{'UUID':<8} | {'Ticker':<10} | {'ROI':<8} | {'Vol':<12}")
                 lines.append("-" * 50)
                 
                 count = 0 
-                for pos in self.pocket_manager.positions.values():
+                for pos in self.pocket_manager.pockets.values():
                    ticker = Ticker(pos.ticker)
                    profit_rate = (self.current_prices.get(ticker.ticker) / pos.entry_price) -1
                    uuid_short = pos.id[:6]
@@ -521,7 +527,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                    count += 1
                 
                 if count == 0:
-                    lines.append("No active positions.")
+                    lines.append("No active pockets.")
                     
                 response_text = "\n".join(lines)
                 

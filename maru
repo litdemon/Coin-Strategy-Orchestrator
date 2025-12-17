@@ -71,7 +71,7 @@ def send_command(action, **kwargs):
     command_handler.send()
     
     # If status or account, wait for response?
-    if action in ["status", "account", "positions", "orders"]:
+    if action in ["status", "account", "pockets", "orders"]:
         print("⏳ Waiting for response...")
             
         # Wait up to 3 seconds
@@ -115,7 +115,7 @@ def main():
     cancel_parser.add_argument("target", help="Order UUID or Ticker to cancel all")
 
     # Pockets
-    subparsers.add_parser("positions", help="List active strategy positions")
+    subparsers.add_parser("pockets", help="List active strategy pockets")
 
     # Orders
     subparsers.add_parser("orders", help="List open orders")
@@ -163,8 +163,8 @@ def main():
              # Assume Ticker
              send_command("cancel", ticker=target)
     
-    elif args.command == "positions":
-        send_command("positions")
+    elif args.command == "pockets":
+        send_command("pockets")
         
     elif args.command == "orders":
         send_command("orders")

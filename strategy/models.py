@@ -58,6 +58,17 @@ class StrategyDTO(BaseModel):
             Decimal: lambda v: str(v)
         }
 
+    def summary(self) -> Dict[str, Any]:
+        """Return summary compatible with Dashboard update."""
+        return {
+            "id": self.strategy_id,
+            "name": f"{self.type} ({self.ticker})",
+            "type": self.type,
+            "status": "DELETED", # Since DTOs are mostly used for transient or archived states in this context
+            "profit_rate": 0.0,
+            "last_message": "Strategy Deleted" 
+        }
+
 class StrategyContext(BaseModel):
     """Context passed to the strategy execution environment."""
     strategy_id: str
