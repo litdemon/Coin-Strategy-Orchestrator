@@ -433,6 +433,39 @@ class TestTradingSystem(unittest.TestCase):
         
         print("[PASS] Full System Flow Verified")
 
+    def test_invalid_ticker_command(self):
+        print("\n[Test] Invalid Ticker Command (Error Handling)")
+        
+        # Mock Log
+        self.manager.dashboard.log = MagicMock()
+        
+        # Send command with invalid ticker
+        invalid_ticker = "KRW-INVALID"
+        cmd = {
+            "type": "sell",
+            "action": "sell",
+            "ticker": invalid_ticker,
+            "volume": "1",
+            "won": "0"
+        }
+        
+        # Should NOT raise exception
+        try:
+             self.manager.process_command("trading/command/test_uuid", cmd)
+        except Exception as e:
+             self.fail(f"process_command raised exception for invalid ticker: {e}")
+             
+        # Check if error logged
+        # The exact message depends on src/main.py implementation: f"Error checking price for {ticker.ticker}: {e}"
+        # We can verify `log` was called at least once.
+        self.assertTrue(self.manager.dashboard.log.called, "Dashboard log should be called on error")
+        
+        args, _ = self.manager.dashboard.log.call_args 
+        log_msg = args[0]
+        print(f" -> Logged: {log_msg}")
+        self.assertIn("Error", log_msg)
+        print("[PASS] Invalid Ticker Handled Gracefully")
+
 
 class TestInitialBalance(unittest.TestCase):
     def setUp(self):
