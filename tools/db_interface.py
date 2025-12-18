@@ -139,7 +139,7 @@ class DBInterface:
                 cursor.execute(query, data)
                 conn.commit()
             # 보안상 전체 데이터 로깅 제거
-            logger.debug(f"데이터 저장 완료: {table_name}")
+            logger.debug(f"DB Write: {table_name}")
     
     @classmethod
     def save_all(cls, objects: List['DBInterface'], db_path: str = "database.db"):

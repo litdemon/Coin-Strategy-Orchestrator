@@ -31,3 +31,4 @@ class OrderDTO(BaseModel):
     locked: Decimal = Decimal("0")
     executed_volume: Decimal = Decimal("0")
     trades_count: int = 0
+    avg_price: Optional[Decimal] = None

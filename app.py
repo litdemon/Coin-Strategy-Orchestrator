@@ -20,7 +20,7 @@ def setup_logging(console: bool = True):
     time_format = "%m-%d %H:%M:%S"
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
     logging.basicConfig(
-        level=logging.INFO, 
+        level=logging.DEBUG, 
         filename=os.path.join(log_dir, "coin-stratege.log"), 
         filemode="a+", 
         format=log_format, 
@@ -28,11 +28,12 @@ def setup_logging(console: bool = True):
     )
     
     # Also print to console
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    formatter = logging.Formatter(log_format, datefmt=time_format)
-    console.setFormatter(formatter)
-    logging.getLogger('').addHandler(console)
+    if console:
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+        formatter = logging.Formatter(log_format, datefmt=time_format)
+        console.setFormatter(formatter)
+        logging.getLogger('').addHandler(console)
 
 def main():
     parser = argparse.ArgumentParser(description="Coin Strategy Bot")

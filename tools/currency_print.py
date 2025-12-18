@@ -33,7 +33,7 @@ class Won:
         self.amount = amount
 
     def __str__(self):
-        return f"{self.amount:>10,.0f}원"
+        return f"{self.amount:,.0f}원"
 
 
 class WonR(Won):

@@ -14,7 +14,7 @@ class TestStrategy(unittest.TestCase):
     def test_trailing_stop_logic(self):
         """Test TrailingStopStrategy signal generation."""
         # 1. Setup
-        context = StrategyContext(strategy_id="test", ticker="KRW-BTC", budget=Decimal("100000"), position_id="pos1")
+        context = StrategyContext(strategy_id="test", ticker="KRW-BTC", budget=Decimal("100000"), pocket_id="pos1")
         config = TrailingStopConfig(entry_price=Decimal("100"), trail_percent=Decimal("0.05")) # 5% trail
         
         strategy = TrailingStopStrategy(context=context, config=config)
@@ -38,7 +38,7 @@ class TestStrategy(unittest.TestCase):
         # Price -> 113 (Drop below 114). CLOSE signal.
         signal = strategy.on_tick(Decimal("113"))
         self.assertIsNotNone(signal)
-        self.assertEqual(signal.type, SignalType.CLOSE_POSITION)
+        self.assertEqual(signal.type, SignalType.CLOSE_POCKET)
         self.assertEqual(signal.ticker, "KRW-BTC")
         print("[PASS] Trailing Stop triggered correctly at 113 (High 120, Stop 114)")
 

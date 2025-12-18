@@ -7,6 +7,12 @@ import json
 import traceback
 from decimal import Decimal
 
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return str(obj)
+        return super(DecimalEncoder, self).default(obj)
+
 # Add project root to sys.path if not present
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -28,13 +34,15 @@ from tools.converter import Decimal2float
 from tools.counter import Counter
 from tools.currency_print import Won
 from account.manager import AccountDBManager, AccountUpbitManager
+from account.dbupbit import DBUpbit
 from src.dashboard import Dashboard
-from src.position_manager import Position, PositionManager
+from src.pocket_manager import Pocket, PocketManager, PocketObserver, PocketStateType
 from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
-from strategy.manager import StrategyManager
-from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig
-from strategy.models import StrategyContext
+from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
+from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType
+from strategy.buy_strategy import BuyStrategy, BuyStrategyConfig
+from strategy.default_strategy import DefaultStrategy, DefaultStrategyConfig
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -46,55 +54,66 @@ UPBIT_SECRET_KEY = os.getenv("UPBIT_SECRET_KEY")
 
 DB_PATH = "account.db"
 
-class Manager(WebsocketObserver):
+class Task:
+    def __init__(self, cls, message):
+        self.cls = cls
+        self.message = message
+
+class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
     def __init__(self, virtual: bool = False):
 
         self.task_queue = Queue()
         self.counter = Counter()
         self.virtual = virtual
+        self.orders = {}
+        self.current_prices = CurrentPrice()
 
-    def init(self, config: dict = None):
+    def init_strategy(self):
+        self.strategy_manager = StrategyManager(db_path=DB_PATH, observer=self)
+        self.strategy_manager.register_strategy("default", DefaultStrategy)
+        self.strategy_manager.register_strategy("buy", BuyStrategy)
 
-        self.dashboard = Dashboard() # Initialize Dashboard
+        self.strategy_manager.load_strategies()
 
+    def init_pockets(self):
+        self.pocket_manager = PocketManager(db_path=DB_PATH, observer=self)
+        self.pocket_manager.init()
+                
+    def init_account(self, config: dict = None):
         if self.virtual:
             account_config = config.get("account", {}) if config else {}
             self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config)
             self.upbit_asset = None
             
-            # Initial Funding for Virtual Account
-            initial_balance = 0
-            if config and "account" in config and "initial_balance" in config["account"]:
-                initial_balance = config["account"]["initial_balance"]
-                
-            if initial_balance > 0:
-                # Check current KRW balance
-                current_balance = self.account_manager.get_balance("KRW")
-                if current_balance == 0:
-                    logger.info(f"Initializing Virtual Account with {initial_balance:,.0f} KRW")
-                    self.dashboard.log(f"Init Virtual Account: {initial_balance:,.0f} KRW")
-                    self.account_manager.manager.add_balance("KRW", Decimal(str(initial_balance)))
         else:
             self.account_manager = AccountUpbitManager(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
             self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
+        self.account_manager.init()
 
+        tickers = []
         balances = self.account_manager.get_balances()
-        all_tickers = [ Ticker(asset.get("currency")).ticker for asset in balances if asset.get("currency") != "KRW" ]
-
+        for asset in balances :
+            if asset['currency'] != 'KRW' :
+                tickers.append(Ticker(asset['currency']).ticker)
+            self.on_asset_created(asset)
+        
         # Also get tickers from active orders (Limit/Market orders waiting for execution)
         orders = self.account_manager.get_orders()
         for order in orders :
-            self.dashboard.update({'order': order})
-            t_code = order.get('market', "") or order.get('code', "")
-            ticker = Ticker(t_code)
-            if ticker.ticker not in all_tickers:
-                all_tickers.append(ticker.ticker)
+            if order['market'] != 'KRW' :
+                tickers.append(order['market'])
+                self.on_order_created(order)
+        return tickers
 
-        self.upbit_websocket = UpbitWebSocket(codes=all_tickers, observer=self)
+    def init(self, config: dict = None):
+
+        self.dashboard = Dashboard() # Initialize Dashboard
+
+        tickers = self.init_account(config)
+            
+        self.upbit_websocket = UpbitWebSocket(codes=list(set(tickers)), observer=self)
         
-        self.price_ob = CurrentPrice()
-        
-        # Initialize Messaging System
+        # Override with provided config if available
         # Default Config
         mqtt_config = {
             "broker_type": "mqtt",
@@ -117,46 +136,15 @@ class Manager(WebsocketObserver):
             self.dashboard.log("Messaging Connection Failed")
 
         # Initialize Strategy Manager
-        self.strategy_manager = StrategyManager(db_path=DB_PATH, account_manager=self.account_manager)
+        self.init_strategy()
 
-        # Initialize Position Manager
-        self.position_manager = PositionManager(db_path=DB_PATH)
-        for balance in balances:
-            ticker = Ticker(balance.get("currency"))
-            self.dashboard.update({'asset': balance})
-            if ticker.currency == "KRW":
-                continue
+        # Initialize Pocket Manager - Pocket needs to be initialized after strategy
+        self.init_pockets()
 
-            # position이 없으면 default position 생성   
-            if not self.position_manager.get_positions(ticker.ticker, only_active=True):
-                current_price = pyupbit.get_current_price(ticker.ticker)
-                # 총 balance의 25%를 position으로 사용
-                balance = Decimal(balance.get("balance")) * Decimal(0.25)
-                pos = self.position_manager.create_position(
-                                            ticker=ticker.ticker, 
-                                            entry_price=current_price, 
-                                            volume=balance)
-                
-                # Create Strategy Context & Config
-                context = StrategyContext(
-                    strategy_id=str(uuid.uuid4()),
-                    ticker=ticker.ticker,
-                    budget=balance, 
-                    position_id=pos.id
-                )
-                config = TrailingStopConfig(
-                    entry_price=current_price,
-                    trail_percent=Decimal("0.02") # Default 2% trailing stop
-                )
-                
-                strategy = TrailingStopStrategy(context=context, config=config)
-                self.strategy_manager.add_strategy(strategy)
-
-        # Log loaded positions
-        for pos in self.position_manager.positions.values():
-            self.dashboard.log(f"Loaded Position: {pos.ticker:<10} {pos.entry_price:<10,.0f} {pos.volume * pos.entry_price:,.0f}")
-            self.dashboard.update({'position': pos.model_dump()})
-        
+        for strategy in self.strategy_manager.strategies.values():
+            if strategy.context.pocket_id in self.pocket_manager.pockets:
+                logger.debug(f"Strategy {strategy.context.strategy_id} is active")
+                self.dashboard.update({'strategy': strategy.summary()})
 
     def run(self):
         self.dashboard.start() # Start Dashboard
@@ -169,13 +157,11 @@ class Manager(WebsocketObserver):
         while not is_stop:
             try:
                 task = self.task_queue.get()
-                is_stop = self.on_task(**task)
+                is_stop = self.on_task(task)
             except Exception as e:
                 logger.error(f"Error processing task: {e}")
-                # traceback
-                
-                logger.error(traceback.format_exc())
-        logger.info("Task queue is empty")
+                logging.error(traceback.format_exc())
+        logger.debug("Task queue is empty")
 
     def stop(self):
         self.upbit_websocket.stop()
@@ -185,6 +171,81 @@ class Manager(WebsocketObserver):
             self.messaging.disconnect()
         self.dashboard.stop()
 
+    # -- Pocket Events -------------------------
+    def on_pocket_loaded(self, pocket: Pocket):
+        self.dashboard.log(f"Loaded Pocket: {pocket.ticker:<10} {pocket.entry_price:<10,.0f} {pocket.volume * pocket.entry_price:,.0f}")
+        self.dashboard.update({'pocket': pocket.model_dump()})
+    
+    def on_pocket_created(self, pocket: Pocket):
+        self.dashboard.log(f"Created Pocket: {pocket.ticker:<10} {pocket.entry_price:<10,.0f} {pocket.volume * pocket.entry_price:,.0f}")
+        self.dashboard.update({'pocket': pocket.model_dump()})
+
+        # Default Strategy Creation
+        context = StrategyContext(
+            strategy_id=str(uuid.uuid4()),
+            ticker=pocket.ticker,
+            budget=pocket.volume, 
+            pocket_id=pocket.id
+        )
+        config = DefaultStrategyConfig(
+            entry_price=pocket.entry_price,
+            trail_percent=Decimal("0.02"),
+            stop_loss_percent=Decimal("0.02"),
+            take_profit_percent=Decimal("0.05")
+        )
+        
+        strategy = DefaultStrategy(context=context, config=config)
+        self.strategy_manager.add_strategy(strategy)
+
+    def on_pocket_updated(self, pocket: Pocket):
+        ticker = Ticker(pocket.ticker)
+        self.dashboard.update({'pocket': pocket.model_dump()})
+
+        if pocket.status == PocketStateType.CLOSING:
+            self.dashboard.log(f"Pocket Closing: {pocket.ticker} ({pocket.id[:8]})")
+            
+            if not pocket.close_order_id:
+                # 1. Create Order
+                order = self.account_manager.sell_market_order(ticker.market, pocket.volume)
+                # 2. Persist Order ID to Pocket
+                pocket.close_order_id = order.get('uuid')
+                pocket.save(self.pocket_manager.db_path) # Save persistence
+                self.dashboard.log(f" -> Sell Order Created: {pocket.close_order_id}")
+            else:
+                self.dashboard.log(f" -> Waiting for Close Order: {pocket.close_order_id}")
+
+        elif pocket.status == PocketStateType.ACTIVE:
+            self.dashboard.log(f"Pocket Updated: {pocket.ticker} ({pocket.id[:8]})")
+        else:
+            self.dashboard.log(f"Pocket {pocket.ticker} ({pocket.id[:8]}) is {pocket.status}")
+
+        # Check for CLOSED status to cleanup strategies
+        if pocket.status == PocketStateType.CLOSED:
+             self.strategy_manager.delete_strategies_by_pocket_id(pocket.id)
+             self.dashboard.log(f" -> Strategies cleaned up for Closed Pocket {pocket.id[:8]}")
+
+    def on_pocket_deleted(self, pocket: Pocket):
+        self.dashboard.update({'pocket': pocket.model_dump()})
+        self.dashboard.log(f"Pocket Deleted: {pocket.ticker} ({pocket.id[:8]})")
+        
+        # Cleanup associated strategies
+        self.strategy_manager.delete_strategies_by_pocket_id(pocket.id)
+
+    # -- strategy events -------------------------
+    def on_strategy_created(self, strategy: StrategyBase):
+        self.dashboard.update({'strategy': strategy.summary()})
+
+    def on_strategy_signal(self, strategy: StrategyBase, signal: Signal):
+        self.dashboard.update({'strategy': strategy.summary()})
+        # Queuing task for strategy
+        self.task_queue.put(Task(cls=strategy, message=signal.model_dump()))
+
+    def on_strategy_updated(self, strategy: StrategyBase):
+        self.dashboard.update({'strategy': strategy.summary()})
+
+    def on_strategy_deleted(self, strategy: StrategyBase):
+        self.dashboard.update({'strategy': strategy.summary()})
+
     # -- WebSocket Events -------------------------
     def on_ws_opened(self, cls):
         self.dashboard.log("WebSocket Opened")
@@ -192,77 +253,96 @@ class Manager(WebsocketObserver):
     def on_ws_closed(self, cls):
         self.dashboard.log("WebSocket Closed")
 
+    def on_ws_message(self, cls, message: dict):
+        self.task_queue.put(Task(cls=cls, message=message))   
+
+    # -- message events -------------------------    
     def on_mqtt_message(self, topic: str, payload: str):
         """Callback for MQTT messages."""
         try:
             data = json.loads(payload)
-            self.task_queue.put({
-                "cls": self.messaging, 
-                "message": {
-                    "type": "command", 
-                    "topic": topic, 
-                    "data": data
-                }
-            })
+            self.task_queue.put(Task(cls=self.messaging, message={
+                "type": "command", 
+                "topic": topic, 
+                "data": data
+            }))
         except json.JSONDecodeError:
             self.dashboard.log(f"Invalid JSON from {topic}")
-            logger.error(f"Invalid message: {payload}")
+            logger.debug(f"Invalid message: {payload}")
             logger.error(traceback.format_exc())
 
-    def on_ws_message(self, cls, message: dict):
-        self.task_queue.put({"cls": cls, "message": message})   
-
-    def on_task(self, cls, message: dict):
+    def on_task(self, task: Task):
         
-        # Check for AccountManager (virtual account updates)
-        # We check class name or instance because direct import might lead to circular dependency if not careful,
-        # but importing AccountManager is fine here.
-        # Check if cls has 'process_order_complete' or similar unique method, or just import it.
-        # Let's use string check or import.
-        
-        is_virtual_manager = hasattr(cls, 'process_order_complete') # Duck typing for AccountManager
+        if isinstance(task.cls, UpbitWebSocket):
 
-        if isinstance(cls, UpbitWebSocket):
+            if task.message["type"] == "ticker":
+                market = task.message['code']
+                price = task.message['trade_price']
+                self.current_prices.update(market, price)
+                
+                if self.current_prices.is_updated(market):
+                    self.on_ticker(task.message)
 
-            if message["type"] == "ticker":
-                market = message['code']
-                price = message['trade_price']
-                self.price_ob.update(market, price)
-                if self.price_ob.is_updated(market):
-                    self.on_ticker(message)
-
-            elif message["type"] == "orderbook":
-                self.on_orderbook(message)
-            elif message["type"] == "trade":
-                market = message['code']
-                price = message['trade_price']
-                self.price_ob.update(market, price)
-                if self.price_ob.is_updated(market):
-                    self.on_trade(message)
+            elif task.message["type"] == "orderbook":
+                self.on_orderbook(task.message)
+            elif task.message["type"] == "trade":
+                market = task.message['code']
+                price = task.message['trade_price']
+                self.current_prices.update(market, price)
+                if self.current_prices.is_updated(market):
+                    self.on_trade(task.message)
                     
             else:
-                raise Exception(f"Unknown message type: {message['type']} from {cls}")
-        elif isinstance(cls, UpbitWebSocketPrivate) or is_virtual_manager:
+                raise Exception(f"Unknown message type: {task.message['type']} from {task.cls}")
+        elif isinstance(task.cls, UpbitWebSocketPrivate) or isinstance(task.cls, DBUpbit):
 
-            if message["type"] == "myOrder":
-                self.on_my_order(cls, message)
-            elif message["type"] == "myAsset":
-                self.on_my_asset(cls, message)
+            if task.message["type"] == "myOrder":
+                self.on_my_order(task.cls, task.message)
+            elif task.message["type"] == "myAsset":
+                self.on_my_asset(task.cls, task.message)
             else:
-                if is_virtual_manager:
-                    # Virtual manager might send other types? For now only myAsset.
-                    pass
-                else:
-                    raise Exception(f"Unknown message type: {message['type']} from {cls}")
-        elif isinstance(cls, MessagingClient):
-            if message["type"] == "command":
-                self.process_command(message["topic"], message["data"])
+                raise Exception(f"Unknown message type: {task.message['type']} from {task.cls}")
+        elif isinstance(task.cls, MessagingClient):
+            if task.message["type"] == "command":
+                self.process_command(task.message["topic"], task.message["data"])
             else:
-                self.dashboard.log(f"Unknown msg type from Messaging: {message['type']}")
+                self.dashboard.log(f"Unknown msg type from Messaging: {task.message['type']}")
+        elif isinstance(task.cls, StrategyBase):
+            self.on_signal_processing(task.cls, task.message)
+        else:
+            raise Exception(f"Unknown class: {task.message['type']} from {task.cls}")
+
+    def on_signal_processing(self, strategy: StrategyBase, signal: dict):
+        '''
+        StrategyManager calls this when a signal is processed.
+        '''
+        pocket = None
+        ticker = signal['ticker']
+        volume = signal['amount']
+        data = signal['data']
+        
+
+        if signal['type'] == SignalType.BUY:
+            order = self.account_manager.buy_market_order(ticker, volume)
+
+        elif signal['type'] == SignalType.SELL:
+            if data and data.get("pocket_id") and signal.get("reason"):
+                self.pocket_manager.set_reason(data.get("pocket_id"), signal.get("reason"))
+            order = self.account_manager.sell_market_order(ticker, volume)
+        
+        elif signal['type'] == SignalType.CLOSE_POCKET:
+            if data and data.get("pocket_id"):
+                if signal.get("reason"):
+                    self.pocket_manager.set_reason(data.get("pocket_id"), signal.get("reason"))
+                self.pocket_manager.close_pocket(data.get("pocket_id"))
+            else:
+                raise Exception("Pocket ID is required for Pocket Close")
+            
 
         else:
-            raise Exception(f"Unknown class: {cls}")
+            raise Exception(f"Unknown signal type: {signal['type']}")
 
+            
     def process_command(self, topic: str, data: dict):
         """Process commands from Messaging System."""
         try:
@@ -275,7 +355,7 @@ class Manager(WebsocketObserver):
                 # Reply with status
                 status = {
                     "running": True,
-                    "positions": len(self.position_manager.positions),
+                    "pockets": len(self.pocket_manager.pockets),
                     "timestamp": time.time()
                 }
                 self.messaging.publish(f"trading/response/{uuid}/status", status)
@@ -306,23 +386,52 @@ class Manager(WebsocketObserver):
                     price = None
 
                 if price is None and not is_market:
-                     price = pyupbit.get_current_price(ticker.ticker)
-                     self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
+                    try:
+                        price = pyupbit.get_current_price(ticker.ticker)
+                        if price is None:
+                            self.dashboard.log(f"Error: Price not found for {ticker.ticker}")
+                            return
+                        self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
+                    except Exception as e:
+                        self.dashboard.log(f"Error checking price for {ticker.ticker}: {e}")
+                        return
 
                 if won > 0 and volume <= 0:
-                    price = Decimal( pyupbit.get_current_price(ticker.ticker) )
-                    fee = Decimal('0.005')
-                    volume = (won - won * fee) / price
+                    # Calculate volume based on won amount
+                    if price is None or (price and price <= 0):
+                         # Market Order estimation or Limit calculation using current price if not provided (though limit requires price)
+                         # If price not provided, we fetched it at line 325 
+                         pass
+                    
+                    try:
+                        calc_price = price if (price and price > 0) else Decimal(pyupbit.get_current_price(ticker.ticker))
+                        if calc_price is None:
+                            self.dashboard.log(f"Error: Price not found for {ticker.ticker}")
+                            return
+                    except Exception as e:
+                        self.dashboard.log(f"Error checking price for {ticker.ticker}: {e}")
+                        return
+                    
+                    # Update price only if it was not provided (and thus is market order logic?) 
+                    # Actually if user gave price, we shouldn't overwrite 'price' variable if it's a Limit Order.
+                    # But we need a price to calc volume.
+                    
+                    fee = Decimal('0.0005')
+                    volume = (won - won * fee) / calc_price
+                    
+                    # If user provided price, keep it. If not, price might have been set to current_price at line 325.
+                    # The issue was line 329: price = Decimal(...) overwrote the user's limit price.
+                    # We should NOT overwrite 'price' if it was already valid.
                 
                 # Validation: Price and Volume must be positive
                 if volume <= 0:
                      self.dashboard.log(f"Invalid Buy Volume: {volume}. Must be positive.")
                      return
-                if price <= 0 and not is_market:
+                if not is_market and (price is None or price <= 0):
                      self.dashboard.log(f"Invalid Buy Price: {price}. Must be positive for Limit Order.")
                      return
 
-                self.dashboard.log(f"CMD BUY: {ticker.ticker} {volume} @ {'Market' if is_market else price}")
+                self.dashboard.log(f"CMD BUY: {ticker.currency} {ticker.volume(volume)} @ {'Market' if is_market else price}")
                 
                 # Trigger buy via account_manager
                 if is_market:
@@ -330,7 +439,7 @@ class Manager(WebsocketObserver):
                 else:
                     order = self.account_manager.buy_limit_order(ticker.ticker, price, volume)
                 
-                self.dashboard.log(f"Order Placed: {order}")
+                # self.dashboard.log(f"Order Placed: {order.get('side')}: {order.get('price')} @ {order.get('volume')}")
                 
             elif action == "sell":
                 # Implement Sell Logic or delegate
@@ -344,13 +453,22 @@ class Manager(WebsocketObserver):
                     is_market = True
                     price = None
                 
-                if price is None and not is_market:
-                    price = pyupbit.get_current_price(ticker.ticker)
-                     
-                if won > 0 and volume <= 0:
-                    price = Decimal( pyupbit.get_current_price(ticker.ticker) )
-                    fee = Decimal(0.005)
-                    volume = (won - won * fee) / price
+                try:
+                    current_price = pyupbit.get_current_price(ticker.ticker)
+                    if current_price is None:
+                        self.dashboard.log(f"Error: Price not found for {ticker.ticker}")
+                        return
+                    
+                    if price is None and not is_market:
+                        price = Decimal(current_price)
+                        
+                    if won > 0 and volume <= 0:
+                        price = Decimal(current_price)
+                        fee = Decimal(0.005)
+                        volume = (won - won * fee) / price
+                except Exception as e:
+                    self.dashboard.log(f"Error checking price for {ticker.ticker}: {e}")
+                    return
                 
                 # Check for "Sell All" (Volume = -1)
                 is_sell_all = False
@@ -380,20 +498,16 @@ class Manager(WebsocketObserver):
                     # Clean up Virtual Account Artifacts
                     self.dashboard.log(f"Cleaning up artifacts for {ticker}...")
                     
-                    # 1. Archive Positions
-                    positions = self.position_manager.get_positions(ticker)
-                    for pos in positions:
-                        self.position_manager.archive_position(pos.id)
-                        self.dashboard.update({'remove': {'id': pos.id}})
-                        self.dashboard.log(f"Archived Position: {pos.id}")
+                    # 1. Archive Pockets
+                    pockets = self.pocket_manager.get_pockets(ticker)
+                    for pocket in pockets:
+                        self.pocket_manager.archive_pocket(pocket.id)
                         
                     # 2. Archive Strategies
                     # Find strategies for this ticker
-                    # StrategyManager doesn't have get_strategies_by_ticker method directly exposed cleanly?
-                    # iterating self.strategy_manager.strategies
                     to_archive = []
                     for sid, strategy in self.strategy_manager.strategies.items():
-                        if strategy.context.ticker == ticker:
+                         if hasattr(strategy, 'context') and strategy.context.ticker == ticker:
                             to_archive.append(sid)
                     
                     for sid in to_archive:
@@ -403,29 +517,46 @@ class Manager(WebsocketObserver):
                     self.dashboard.log(f"Cleanup complete for {ticker}")
 
             elif action == "cancel":
-                uuid = data.get("uuid")
+                uuid_arg = data.get("uuid")
                 ticker_str = data.get("ticker")
                 
                 if ticker_str:
                     # Generic Cancel by Ticker
                     t = Ticker(ticker_str)
                     self.dashboard.log(f"CMD CANCEL ALL: {t.ticker}")
-                    # Fetch open orders for this ticker
-                    # AccountManager.get_order(ticker) returns list of orders (dict or DTO)
                     orders = self.account_manager.get_order(t.ticker)
                     if not orders:
                          self.dashboard.log(f"No open orders found for {t.ticker}")
                     
                     for order in orders:
-                         # Handle Dict vs DTO
                          oid = order.get('uuid') if isinstance(order, dict) else getattr(order, 'uuid', None)
                          if oid:
                              self.account_manager.cancel_order(oid)
                              self.dashboard.log(f"Cancelled {oid}")
                 
-                elif uuid:
-                    self.dashboard.log(f"CMD CANCEL: {uuid}")
-                    result = self.account_manager.cancel_order(uuid)
+                elif uuid_arg:
+                    # Handle Partial UUID (6 chars)
+                    target_uuid = uuid_arg
+                    if len(uuid_arg) < 36: # Full UUID is 36 chars
+                        all_orders = self.account_manager.get_orders() # Fetch all wait orders
+                        matches = []
+                        for order in all_orders:
+                            oid = order.get('uuid') if isinstance(order, dict) else getattr(order, 'uuid', None)
+                            if oid and oid.startswith(uuid_arg):
+                                matches.append(oid)
+                        
+                        if len(matches) == 1:
+                            target_uuid = matches[0]
+                            self.dashboard.log(f"Partial UUID '{uuid_arg}' resolved to {target_uuid}")
+                        elif len(matches) > 1:
+                            self.dashboard.log(f"Ambiguous partial UUID '{uuid_arg}'. Matches: {matches}")
+                            return # Safety abort
+                        else:
+                            self.dashboard.log(f"No order found matching partial UUID '{uuid_arg}'")
+                            return
+
+                    self.dashboard.log(f"CMD CANCEL: {target_uuid}")
+                    result = self.account_manager.cancel_order(target_uuid)
                     if hasattr(result, 'model_dump'):
                          res = result.model_dump()
                     elif isinstance(result, dict):
@@ -436,93 +567,171 @@ class Manager(WebsocketObserver):
                     if result:
                         self.dashboard.log(f"Order Cancelled: {res.get('market')} {res.get('side')} {res.get('state')} {res.get('locked')}")
                     else:
-                        self.dashboard.log(f"Order Cancel Failed or Not Found: {uuid}")
+                        self.dashboard.log(f"Order Cancel Failed or Not Found: {target_uuid}")
+
+            elif action == "pockets":
+                self.dashboard.log("CMD POCKETS Request")
+                reply_to = data.get("reply_to")
+                
+                # Gather pockets handled by PocketManager? Or Account Assets?
+                # User asked for "pocket list". Usually means active pockets tracking profits.
+                # StrategyManager / PocketManager has them.
+                # Let's list PocketManager active pockets.
+                
+                lines = []
+                lines.append(f"{'UUID':<8} | {'Ticker':<10} | {'ROI':<8} | {'Vol':<12}")
+                lines.append("-" * 50)
+                
+                count = 0 
+                for pos in self.pocket_manager.pockets.values():
+                   ticker = Ticker(pos.ticker)
+                   profit_rate = (self.current_prices.get(ticker.ticker) / pos.entry_price) -1
+                   uuid_short = pos.id[:6]
+                   roi = f"{profit_rate * 100:.2f}%"
+                   lines.append(f"{uuid_short:<8} | {ticker.ticker:<10} | {roi:<8} | {pos.volume}")
+                   count += 1
+                
+                if count == 0:
+                    lines.append("No active pockets.")
+                    
+                response_text = "\n".join(lines)
+                
+                if reply_to:
+                    self.messaging.publish(reply_to, {"text": response_text})
+                else:
+                    self.dashboard.log(response_text) # Log local if no reply address
+            elif action == "orders":
+                 self.dashboard.log("CMD ORDERS Request")
+                 reply_to = data.get("reply_to")
                  
+                 # AccountManager.get_orders() returns list of open orders
+                 orders = self.account_manager.get_orders()
+                 
+                 lines = []
+                 lines.append(f"{'UUID':<8} | {'Ticker':<10} | {'Side':<4} | {'Price':<12} | {'Vol'}")
+                 lines.append("-" * 65)
+                 
+                 count = 0
+                 for o in orders:
+                     # Handle Dict vs Object
+                     oid = o.get('uuid') if isinstance(o, dict) else getattr(o, 'uuid', "")
+                     mkt = o.get('market') if isinstance(o, dict) else getattr(o, 'market', "")
+                     side = o.get('side') if isinstance(o, dict) else getattr(o, 'side', "")
+                     price = o.get('price') if isinstance(o, dict) else getattr(o, 'price', 0)
+                     vol = o.get('remaining_volume') if isinstance(o, dict) else getattr(o, 'remaining_volume', 0)
+                     
+                     uuid_short = oid[:6]
+                     lines.append(f"{uuid_short:<8} | {mkt:<10} | {side:<4} | {price:<12} | {vol}")
+                     count += 1
+                     
+                 if count == 0:
+                     lines.append("No open orders.")
+                     
+                 response_text = "\n".join(lines)
+                 
+                 if reply_to:
+                     self.messaging.publish(reply_to, {"text": response_text})
+                 else:
+                     self.dashboard.log(response_text)
+
             else:
                 self.dashboard.log(f"Unknown Action: {action}")
                 
         except Exception as e:
             logger.error(f"Error processing command: {e}")
-            self.dashboard.log(f"CMD Error: {e}")
-        
-    def on_my_order(self, cls, message: dict):
-        ticker = message['code']
-        ask_bid = message['ask_bid']
-        state = message['state']
-        entry_price = Decimal(message.get('price', 0))
-        volume = Decimal(message.get('volume', 0))
-        
-        krw_volume = volume * entry_price
+            logger.error(traceback.format_exc())
 
-        self.dashboard.log(f"Order🧾 detected {ticker}: {ask_bid}:{state} {Won(entry_price)} {Won(krw_volume)}")
-        self.dashboard.update({'order': message})
         
-        if ask_bid == "bid" and state == "done":
-            # 새로운 position 생성
-            pos = self.position_manager.on_order_fill(message)
-            if pos:
-                self.dashboard.update({'position': pos.model_dump()})
-                self.dashboard.log(f"New Position: {pos.ticker} ({pos.id[:8]})")
+    # -- order events ------------------------
+    def on_order_created(self, order: dict):
+        self.dashboard.update({'order': order})
+        self.orders[order['uuid']] = order
+    
+    def on_order_updated(self, order: dict):
+        self.dashboard.update({'order': order})
+        self.orders[order['uuid']] = order
+    
+    def on_order_completed(self, order: dict):
+        self.dashboard.update({'order': order})
+
+        ticker = Ticker(order['code'])
+        price = Decimal(str(order['price']))
+        volume = Decimal(str(order['volume']))
+
+        ask_bid = order['ask_bid']
+        # 매도 체결 완료
+        if ask_bid == "ask":
+            # Check if this order is linked to a closing pocket
+            pocket = self.pocket_manager.get_pocket_by_order_id(order['uuid'])
+            if pocket:
+                self.pocket_manager.closed_pocket(pocket.id, price)
+                self.dashboard.log(f"Pocket Closed by Order {order['uuid']}")
+            else:
+                # Fallback / Direct Sell (e.g. from CLI or Strategy without pocket link?) 
+                # Or old behavior: close by ticker matching (heuristic)
+                self.pocket_manager.close_pockets_by_ticker(ticker.ticker, price, volume)
                 
-        elif ask_bid == "ask" and state == "done":
-            pos = self.position_manager.on_order_fill(message)
-            if pos:
-                self.dashboard.update({'position': pos.model_dump()})
-                self.dashboard.log(f"Position Closed: {pos.ticker} ({pos.id[:8]})")
-                
-        elif ask_bid == "cancel":
-            pass
+        # 매수 체결 완료
+        elif ask_bid == "bid":
+            self.pocket_manager.create_pocket(ticker.ticker, price, volume)
         else:
-            pass
+            self.dashboard.log(f"Unknown ask_bid: {ask_bid}")
+   
+    def on_order_deleted(self, order: dict):
+        self.dashboard.update({'order': order})
         
-        # Sync Asset Dashboard if order done
-        if state == 'done':
-            # Fetch latest asset info including avg_buy_price
-            asset_info = self.account_manager.get_asset_balance(ticker)
-            if asset_info and asset_info.get('balance'):
-                 self.dashboard.update({'asset': asset_info})
-                 self.dashboard.log(f"Synced Asset for {ticker}: {asset_info['balance']} @ {asset_info['avg_buy_price']}")
-            elif asset_info: # Balance 0 case
-                 self.dashboard.update({'asset': asset_info})
-                 self.dashboard.log(f"Synced Asset for {ticker}: Balance Zero")
-                 
-                 # Cleanup Logic: If balance is 0, archive all positions and remove from dashboard
-                 balance = Decimal(str(asset_info.get('balance', 0)))
-                 if balance <= 0:
-                      self.dashboard.log(f"Balance Zero for {ticker}. Cleaning up all positions.")
-                      positions = self.position_manager.get_positions(ticker, only_active=False)
-                      for pos in positions:
-                           self.position_manager.archive_position(pos.id)
-                           self.dashboard.update({'remove': {'id': pos.id}})
-                           self.dashboard.log(f"Archived & Removed Position: {pos.id}")
+
+    def on_my_order(self, cls, message: dict):
+
+        state = message['state']
+        uuid = message['uuid']
+
+        if state == "wait":
+            if uuid not in self.orders:
+                self.on_order_created(message)
+            else:
+                self.on_order_updated(message)
+        elif state == "done":
+            self.on_order_completed(message)
+        elif state == "cancel":
+            self.on_order_deleted(message)
+            if uuid in self.orders:
+                del self.orders[uuid]
+        else:
+            self.on_order_updated(message)
+
+    # -- asset events ------------------------
+    def on_asset_created(self, asset: dict):
+        self.dashboard.update({'asset': asset})
+    
+    def on_asset_updated(self, asset: dict):
+        self.dashboard.update({'asset': asset})
+    
+    def on_asset_deleted(self, asset: dict):
+        self.dashboard.update({'asset': asset})
 
     def on_my_asset(self, cls, message: dict):
-        logger.info(f"Asset Update: {json.dumps(message, indent=4, default=str)}")
-
-        # Order 정보를 보고 asset을 업데이트 할 예정
         assets = message['assets']
         for asset in assets:
             ticker = Ticker(asset['currency'])
-            balance = asset['balance']
-            if ticker == "KRW":
-                self.dashboard.update({'asset': asset})
-            else:
-                 self.dashboard.update({'asset': asset})
-            self.dashboard.log(f"Asset Update: {ticker.amount(balance)} by myAsset")
+            dbasset = self.account_manager.get_asset_balance(ticker.ticker)
             
+            self.dashboard.update({'asset': dbasset})
+            self.dashboard.log(f"Asset Update: {ticker.amount(dbasset['balance'])} by myAsset")
+          
 
     def on_ticker(self, message: dict):
         ticker = message['code']
         current_price = message['trade_price']
 
-        if not self.price_ob.is_updated(ticker):
-            return
+        # logger.info(f"Ticker Update: {ticker} {current_price}")
         
         # Update Dashboard Ticker Info
         self.dashboard.update({'ticker': message})
+        
         # TODO: Strategy Manager
-        # if self.strategy_manager:
-        #     self.strategy_manager.on_ticker(ticker, current_price)
+        if self.strategy_manager:
+            self.strategy_manager.on_tick(ticker, current_price)
 
     def on_orderbook(self, message: dict):
         tiker = Ticker(message.get('code', ''))
@@ -530,17 +739,8 @@ class Manager(WebsocketObserver):
 
         self.account_manager.check_order(tiker.ticker, orderbook)
 
-    def on_trade(self, message: dict):
-        pass
-
-    def on_order(self, message: dict):
-        pass
-
-    def on_asset(self, message: dict):
-        pass
-
-    def on_signal(self, position: Position=None, signals: Any=None):
-        pass
+        if self.strategy_manager:
+            self.strategy_manager.on_orderbook(tiker, orderbook)
 
     # -- Main -------------------------------------
 if __name__ == "__main__":

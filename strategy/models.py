@@ -15,7 +15,7 @@ class SignalType(str, Enum):
     BUY = "buy"
     SELL = "sell"
     UPDATE_STOP = "update_stop"
-    CLOSE_POSITION = "close_position" # Explicit close
+    CLOSE_POCKET = "close_pocket" # Explicit close
     PARTIAL_CLOSE = "partial_close"
 
 class Signal(BaseModel):
@@ -33,6 +33,7 @@ class StrategyConfig(BaseModel):
     """Base configuration for a strategy."""
     strategy_type: str
     execution_interval: Optional[int] = None # Seconds. If set, on_schedule is called.
+    schedule: Optional[str] = None # Crontab expression (e.g., "* * * * *")
     
     class Config:
         extra = "allow"
@@ -43,12 +44,13 @@ class StrategyDTO(BaseModel):
     type: str
     ticker: str
     budget: Decimal
-    position_id: Optional[str] = None # Optional link to a specific position
+    pocket_id: Optional[str] = None # Optional link to a specific pocket
     status: StrategyStatus = StrategyStatus.ACTIVE
     config: Dict[str, Any]
     state: Dict[str, Any]
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
+    last_execution_time: float = 0.0
 
     class Config:
         arbitrary_types_allowed = True
@@ -56,12 +58,24 @@ class StrategyDTO(BaseModel):
             Decimal: lambda v: str(v)
         }
 
+    def summary(self) -> Dict[str, Any]:
+        """Return summary compatible with Dashboard update."""
+        return {
+            "strategy_id": self.strategy_id,
+            "name": f"{self.type} ({self.ticker})",
+            "type": self.type,
+            "status": "DELETED", # Since DTOs are mostly used for transient or archived states in this context
+            "profit_rate": 0.0,
+            "last_message": "Strategy Deleted" 
+        }
+
 class StrategyContext(BaseModel):
     """Context passed to the strategy execution environment."""
     strategy_id: str
     ticker: str
     budget: Decimal
-    position_id: Optional[str] = None
+    pocket_id: Optional[str] = None
+    last_execution_time: float = 0.0
     
     class Config:
         arbitrary_types_allowed = True

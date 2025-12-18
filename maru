@@ -40,18 +40,28 @@ def send_command(action, **kwargs):
         
         def on_response(self, topic, payload):
             # Pretty print JSON if possible
-            if isinstance(payload, dict) or isinstance(payload, list):
+            try:
+                payload = json.loads(payload)
+            except:
+                pass
+            if isinstance(payload, dict):
+                if "text" in payload:
+                     print(payload["text"])
+                else:
+                     print(f"📥 Response:")
+                     print(json.dumps(payload, indent=2, ensure_ascii=False))
+            elif isinstance(payload, list):
                 print(f"📥 Response:")
                 print(json.dumps(payload, indent=2, ensure_ascii=False))
             else:
                 print(f"📥 Response: {payload}")
             self.responses.append(payload)
-        
+         
         def get_response(self):
             return self.responses
         
         def send(self):
-            payload = {"action": self.action, **kwargs}
+            payload = {"action": self.action, "reply_to": f"trading/response/{self.command_uuid}/result", **kwargs}
             client.subscribe(self.response_topic, self.on_response)
             client.publish(self.topic, payload)
             print(f"📤 Sending {self.action.upper()} command (ID: {self.command_uuid})...")
@@ -61,7 +71,7 @@ def send_command(action, **kwargs):
     command_handler.send()
     
     # If status or account, wait for response?
-    if action in ["status", "account"]:
+    if action in ["status", "account", "pockets", "orders"]:
         print("⏳ Waiting for response...")
             
         # Wait up to 3 seconds
@@ -103,6 +113,12 @@ def main():
     # Cancel
     cancel_parser = subparsers.add_parser("cancel", help="Cancel Order")
     cancel_parser.add_argument("target", help="Order UUID or Ticker to cancel all")
+
+    # Pockets
+    subparsers.add_parser("pockets", help="List active strategy pockets")
+
+    # Orders
+    subparsers.add_parser("orders", help="List open orders")
 
     args = parser.parse_args()
 
@@ -146,6 +162,12 @@ def main():
         else:
              # Assume Ticker
              send_command("cancel", ticker=target)
+    
+    elif args.command == "pockets":
+        send_command("pockets")
+        
+    elif args.command == "orders":
+        send_command("orders")
 
 if __name__ == "__main__":
     main()

@@ -26,7 +26,7 @@ MAX_WIDTH = 120
 #       └── CandleWidget
 #       └── AssetWidget
 #       └── OrderWidget x N
-#       └── PositionsWidget x N
+#       └── PocketsWidget x N
 #           └── StrategyWidget x N
 class Spinner:
     def __init__(self):
@@ -51,6 +51,7 @@ class Widget(ABC):
     def __init__(self, id: str, parent: Optional['Widget'] = None):
         self.id = id
         self.parent = parent
+        self.spinner = Spinner()
         self.children: Dict[str, 'Widget'] = {}
     
     def add_child(self, widget: 'Widget'):
@@ -89,11 +90,18 @@ class StrategyWidget(Widget):
         super().__init__(id, parent)
         self.name = "Unknown"
         self.state = ""
-    
+        self.config = {}
+        self.display = ""
+
     def update(self, data: Dict[str, Any]):
+        self.spinner.next()
+        # logger.info(f"Strategy Update: {json.dumps(data, indent=4, default=str)}")
         # data is StrategyDTO or dict
         self.name = data.get('type', self.name)
         self.state = data.get('status', self.state)
+        self.config = data.get('config', self.config)
+        self.display = data.get('display', self.display)
+        
         # Handle simple dict update too
         if 'strategy' in data: # legacy or simple dict
              self.name = data.get('strategy', self.name)
@@ -101,56 +109,53 @@ class StrategyWidget(Widget):
              self.state = data.get('state', self.state)
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
-        if self.state:
-            return f"{self.name}({self.state})"
-        return f"{self.name}"
+        # Format config for display
+        
 
-class PositionWidget(Widget):
+        return f"\033[96m{self.spinner()} {self.name}[{self.display}]\033[0m"
+
+
+class PocketWidget(Widget):
     def __init__(self, id: str, parent: 'Widget'):
         super().__init__(id, parent)
         self.entry_price = Decimal("0")
+        self.close_price = Decimal("0")
         self.volume = Decimal("0")
-        self.strategies: Dict[str, StrategyWidget] = {} # Map ID to Widget
+        # self.strategies: Dict[str, StrategyWidget] = {} # Map ID to Widget
+        self.status = ""
 
     def update(self, data: Dict[str, Any]):
-        # data is Position dict or dump
+        # logger.info(f"Pocket Update: {json.dumps(data, indent=4, default=str)}")
+        # data is Pocket dict or dump
         self.entry_price = Decimal(str(data.get('entry_price', self.entry_price)))
+        self.close_price = Decimal(str(data.get('close_price'))) if data.get('close_price') else self.close_price
         self.volume = Decimal(str(data.get('volume', self.volume)))
-        
-        # Strategies might be passed as list of dicts/DTOs?
-        # If passed as 'strategies' list, we might need to update them here or let Dashboard route them?
-        # For now, Dashboard routes by ID. But if Position dump contains strategies, we might need to process them.
-        # But typically Position dump doesn't contain full Strategy objects? 
-        # StrategyManager manages strategies. 
-        # So Position update is mostly price/volume.
-        pass
+        self.status = data.get('status', self.status)
+        self.reason = data.get('reason', "")
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
-        # Render strategies
-        strategy_str = ", ".join([s.render() for s in self.children.values()])
-        
         # PnL
-        if current_price and self.entry_price:
-            profit_rate = (current_price - self.entry_price) / self.entry_price * 100
-            if profit_rate < 0:
-                profit_rate_str = f"\033[34m{profit_rate:.2f}%\033[0m"
-            else:
-                profit_rate_str = f"\033[31m+{profit_rate:.2f}%\033[0m"
-        else:
-            profit_rate_str = "0.00%"
+        profit_rate = (current_price - self.entry_price) / self.entry_price * 100
 
         # Volume
         volume_krw = self.volume * self.entry_price
-        pid_short = str(self.id)[:4]
 
-        return f"   └── Rot:  | Vol: {Won(volume_krw)}:{profit_rate_str}"
+        if self.status == 'closed':
+            profit_rate = (self.close_price - self.entry_price) / self.close_price * 100
+            profit = (self.close_price - self.entry_price) * self.volume
+            reason_str = f"[{self.reason}] " if self.reason else ""
+            return f"   └─ Pocket | ✖ Closed {WonColor(profit)}:{RateColor(profit_rate)} - {reason_str}"
+        else:
+            # Render strategies
+            strategy_str = ", ".join([s.render() for s in self.children.values() if isinstance(s, StrategyWidget)])
+            return f"   └─ Pocket | ▶ 🪙 {Won(volume_krw)}:{RateColor(profit_rate)} | {strategy_str}"
     
 class AssetWidget(Widget):
     def __init__(self, currency: str):
         super().__init__(currency, None) # Root widget
         self.ticker = Ticker(currency)
         self.balance = Decimal("0")
-        self.avg_buy_price = Decimal("0")
+        self.avg_buy_price = Decimal("1")
         self.locked = Decimal("0")
         
     
@@ -159,12 +164,26 @@ class AssetWidget(Widget):
         self.avg_buy_price = Decimal(data.get('avg_buy_price', self.avg_buy_price))
         self.locked = Decimal(data.get('locked', self.locked))
     
+    def won_total(self, current_price: Decimal = Decimal("0")) -> Decimal:
+        if self.ticker.currency == "KRW":
+            return self.balance + self.locked
+        won_total = ( self.balance + self.locked ) * current_price
+        return won_total
+    
+    def buy_price(self):
+        won = self.balance * self.avg_buy_price
+        return won
+    
+    def locked_price(self):
+        won = self.locked * self.avg_buy_price
+        return won
+    
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         
         if self.ticker.currency == "KRW":
             if self.locked > Decimal("0"):
-                 return f"{WonY(self.balance)} (Lock: {WonR(self.locked)})"
-            return f"{WonY(self.balance)}"
+                 return f"💰 {WonY(self.balance)} (Lock: {WonR(self.locked)})"
+            return f"💰 {WonY(self.balance)}"
 
         profit_rate = Decimal("0")        
         if self.avg_buy_price > Decimal("0"):
@@ -176,14 +195,14 @@ class AssetWidget(Widget):
             won_locked = self.locked * current_price
             locked_str = f" (Lock: {WonR(won_locked)})"
 
-        won_total = ( self.balance + self.locked ) * current_price
+        won_total = self.won_total(current_price)
         
         profit_str = ""
         if self.balance > Decimal("0"):
             won_profit = ( current_price - self.avg_buy_price ) * self.balance
             profit_str = f" ({WonColor(won_profit)}:{RateColor(profit_rate)})"
 
-        return f"{WonY(won_total)}{locked_str}{profit_str} "
+        return f"💰 {WonY(won_total)}{locked_str}{profit_str} "
 
 
 class OrderWidget(Widget):
@@ -201,7 +220,7 @@ class OrderWidget(Widget):
         self.ticker = None
 
     def update(self, data: Dict[str, Any]):
-        logger.info(f"Order Update: {json.dumps(data, indent=4, default=str)}")
+
         self.uuid = data.get('uuid', self.uuid)
         self.market = data.get('code', "") or data.get('market', "")
         
@@ -241,7 +260,7 @@ class OrderWidget(Widget):
         # Fee calculation (estimation 0.05%)
         fee = total * Decimal("0.0005") 
         
-        return f"   └── Order: {color}{sidestr:<4}\033[0m | {self.ticker.ticker:<10} | Vol: {self.volume:,.4f} | Fee: {fee:,.0f} | Price: {self.price:,.0f}"
+        return f"   └─ Order: {color}{sidestr:<4}\033[0m | {self.ticker.ticker:<10} | Vol: {self.volume:,.4f} | Fee: {fee:,.0f} | Price: {self.price:,.0f}"
 
 class TickerWidget(Widget):
     
@@ -288,13 +307,13 @@ class TickerWidget(Widget):
         candle_str = f"{self.spinner()} {self.candle.render()} {Won(current_price_dec)}"
         output.append(with_space(f" {self.coin.ticker:11} | {candle_str}"))
         if self.asset.balance > Decimal("0"):
-            output.append(with_space(f"   └── Asset | {self.asset.render(current_price_dec)} "))
+            output.append(with_space(f"   └─ Asset | {self.asset.render(current_price_dec)} "))
         
-        # Render child widgets (Positions and Strategies)
+        # Render child widgets (Pockets and Strategies)
         if self.children:
             # Separate by type
             strategies = [w for w in self.children.values() if isinstance(w, StrategyWidget)]
-            positions = [w for w in self.children.values() if isinstance(w, PositionWidget)]
+            pockets = [w for w in self.children.values() if isinstance(w, PocketWidget)]
             
             # Render Strategies first
             if strategies:
@@ -306,8 +325,8 @@ class TickerWidget(Widget):
             for order in orders:
                 output.append(with_space(order.render(current_price_dec)))
 
-            # Render Positions
-            for pos in positions:
+            # Render Pockets
+            for pos in pockets:
                 output.append(with_space(pos.render(current_price_dec)))
 
         
@@ -332,9 +351,10 @@ class Dashboard:
         self.spinner = Spinner()
         self.orderbook_spinner = Spinner()
         self.ticker_spinner = Spinner()
-        self.position_spinner = Spinner()
+        self.pocket_spinner = Spinner()
         self.strategy_spinner = Spinner()
         self.order_spinner = Spinner()
+        self.total_balance = Decimal("0")
         
 
     def start(self):
@@ -361,6 +381,7 @@ class Dashboard:
         
     # -- Internal Processing --
     def _process_item(self, data: Dict[str, Any]):
+        self.spinner.next()
         with self.lock:
             # 1. Identify Target Widget ID
             target_id = None
@@ -387,10 +408,10 @@ class Dashboard:
                 self.orderbook_spinner.next()
                 target_id = Ticker(payload.get('code')).ticker
                 widget_type = 'ticker'
-            elif 'position' in mtype:
-                self.position_spinner.next()
+            elif 'pocket' in mtype:
+                self.pocket_spinner.next()
                 target_id = payload.get('id')
-                widget_type = 'position'
+                widget_type = 'pocket'
             elif 'strategy' in mtype:
                 self.strategy_spinner.next()
                 target_id = payload.get('strategy_id')
@@ -427,12 +448,11 @@ class Dashboard:
                 return
 
             # 2. Find or Create Widget
-            # 2. Find or Create Widget
             if target_id not in self.registry:
                 if 'ticker' in mtype or 'orderbook' in mtype:
                     return
 
-                # Create if missing (for asset, order, position, strategy)
+                # Create if missing (for asset, order, pocket, strategy)
                 self._create_widget(target_id, widget_type, payload)
             
             # 3. Update Widget
@@ -443,33 +463,33 @@ class Dashboard:
                 # Check for Order Completion/Cancellation
                 if widget_type == 'order':
                     if widget.state in ['done', 'cancel']:
-                         self.log(f"Removing completed order: {target_id} ({widget.state})")
-                         # Remove from parent
-                         if widget.parent and hasattr(widget.parent, 'children'):
-                             if target_id in widget.parent.children:
-                                 del widget.parent.children[target_id]
-                         
-                         # Remove from registry
-                         del self.registry[target_id]
-                         
-                         # Check cleanup for parent
-                         if widget.parent:
-                             self._check_and_remove_ticker(widget.parent.id)
-                         return # Done with this item
+                        self.log(f"Removing completed order: id:{target_id:8} ({widget.state})")
+                        # Remove from parent
+                        if widget.parent and hasattr(widget.parent, 'children'):
+                            if target_id in widget.parent.children:
+                                del widget.parent.children[target_id]
+                        
+                        # Remove from registry
+                        del self.registry[target_id]
+                        
+                        # Check cleanup for parent
+                        if widget.parent:
+                            self._check_and_remove_ticker(widget.parent.id)
+                        return # Done with this item
 
-                # 4. Cleanup Check (if Asset/Position update)
+                # 4. Cleanup Check (if Asset/Pocket update)
                 # If TickerWidget is empty (Balance 0, Locked 0, No Children), remove it.
-                if widget_type in ['asset', 'ticker', 'position']: # 'asset' handled as 'ticker' type but payload is from 'asset' msg
+                if widget_type in ['asset', 'ticker', 'pocket']: # 'asset' handled as 'ticker' type but payload is from 'asset' msg
                     # If it was an asset update, target_id is Ticker.
-                    # If it was a position update, target_id might be Position ID? 
-                    # Wait, if position update, target_id is position ID.
+                    # If it was a pocket update, target_id might be Pocket ID? 
+                    # Wait, if pocket update, target_id is pocket ID.
                     # We need to find the parent ticker to check cleanup.
                     
                     cleanup_target_id = None
                     if target_id in self.registry and isinstance(self.registry[target_id], TickerWidget):
                         cleanup_target_id = target_id
-                    elif target_id in self.registry and isinstance(self.registry[target_id], PositionWidget):
-                        # Position widget, check parent
+                    elif target_id in self.registry and isinstance(self.registry[target_id], PocketWidget):
+                        # Pocket widget, check parent
                         parent = self.registry[target_id].parent
                         if parent and isinstance(parent, TickerWidget):
                              cleanup_target_id = parent.id
@@ -489,52 +509,7 @@ class Dashboard:
         if widget.asset.balance > 0 or widget.asset.locked > 0:
             return
             
-        # Condition 2: No Children (Positions/Strategies)
-        # Note: PositionWidget might be "closed" but still in children if not removed?
-        # If we rely on PositionWidget removal elsewhere, this is fine.
-        # But if PositionWidget is created, it stays in children.
-        # So we only remove if children is empty.
-        # Users might want to see closed positions for a while?
-        # User request: "When sold all (balance 0), remove ticker". 
-        # Usually implies all positions generate the Sell, so positions are closed.
-        # If we have closed positions, should we remove the Ticker?
-        # If Ticker is removed, Positions are gone too (from UI).
-        # This seems to be what user wants ("Update dashboard to remove TickerWidget").
-        
-        # However, we must ensure we don't remove if there are ACTIVE positions.
-        # PositionWidget doesn't interpret "active" vs "closed" state fully in property?
-        # Let's check if any child is a PositionWidget.
-        # Ideally, we should check if they are "active".
-        # But PositionWidget structure implies existence = relevant.
-        # If user sold all, typically positions are closed.
-        # If we implement "Remove Ticker", we implicitly remove all children.
-        
-        # Safest check: If Balance is 0 and Locked is 0.
-        # But what if I have a position but balance is 0? (Shorting? Not supported here).
-        # Or partial fill?
-        # User said "All sold, Balance 0".
-        # So if Balance is 0 and Locked is 0, we can remove.
-        # Wait, if I have an Open Order (Buy), Locked > 0. So it won't be removed. Correct.
-        # If I have Open Order (Sell), Locked > 0. Won't be removed. Correct.
-        # So checking Balance + Locked == 0 is consistent.
-        # But what if I have an active position (Wait, Sell Limit not created yet)?
-        # If I have active position, I likely have some balance (the coin).
-        # So Balance > 0. 
-        # So Balance == 0 and Locked == 0 implies no Coin holdings and no Active Sell Orders.
-        # Does it imply no Buy Orders?
-        # Buy Order locks KRW, not Coin.
-        # So KRW-BTC TickerWidget might have Balance 0, Locked 0 (Coin), but user has Buy Order for BTC.
-        # If we remove TickerWidget, we can't see the Buy Order execution on that Ticker?
-        # OrderWidget is separate? No, OrderWidget is unrelated to TickerWidget in hierarchy?
-        # Dashboard displays OrderWidgets separately in `_render`:
-        # `orders = sorted([w for w in self.registry.values() if isinstance(w, OrderWidget)], ...)`
-        # `TickerWidget` displays `Candle` and `Asset`.
-        # If we remove TickerWidget, we lose Candle view and Asset view.
-        # If I have a Buy Order, do I want to see the Ticker (Candle)? Probably yes.
-        # So we should check if there are any Orders for this ticker?
-        # `dashboard.registry` has `OrderWidget`s.
-        
-        # Strict Check: Balance 0, Locked 0, And No Children (Orders, Positions, Strategies)
+        # Strict Check: Balance 0, Locked 0, And No Children (Orders, Pockets, Strategies)
         if not widget.children and widget.asset.balance <= 0 and widget.asset.locked <= 0:
              self.log(f"Removing empty ticker: {ticker_id}")
              del self.registry[ticker_id]
@@ -563,7 +538,7 @@ class Dashboard:
             widget.update(data)
             parent.add_child(widget)
         
-        elif w_type == 'position':
+        elif w_type == 'pocket':
             # Needs parent ticker
             ticker = Ticker(data.get('ticker')).ticker
             if ticker not in self.registry:
@@ -571,16 +546,16 @@ class Dashboard:
                  self._create_widget(ticker, 'ticker', {'code': ticker})
             
             parent = self.registry[ticker]
-            widget = PositionWidget(id, parent)
+            widget = PocketWidget(id, parent)
             parent.add_child(widget)
             
         elif w_type == 'strategy':
-            # Needs parent position OR ticker
-            # StrategyDTO has 'position_id' (optional) or 'ticker'
-            pos_id = data.get('position_id')
+            # Needs parent pocket OR ticker
+            # StrategyDTO has 'pocket_id' (optional) or 'ticker'
+            pos_id = data.get('pocket_id')
             ticker_code = data.get('ticker')
             
-            # 1. Try Position Parent
+            # 1. Try Pocket Parent
             if pos_id and pos_id in self.registry:
                 parent = self.registry[pos_id]
                 widget = StrategyWidget(id, parent)
@@ -596,8 +571,8 @@ class Dashboard:
                 widget = StrategyWidget(id, parent)
                 parent.add_child(widget)
             else:
-                # Strategy without position or ticker? Impossible to place.
-                logger.warning(f"Dashboard: Strategy {id} has no position_id or ticker. Cannot create widget.")
+                # Strategy without pocket or ticker? Impossible to place.
+                logger.warning(f"Dashboard: Strategy {id} has no pocket_id or ticker. Cannot create widget.")
                 return
 
         if widget:
@@ -637,14 +612,22 @@ class Dashboard:
                 logger.error(f"Error in run loop: {e}")
                 self.running = False
 
+    def _total_balance(self):
+        total = Decimal("0")
+        for coin in self.registry.values():
+            if isinstance(coin, TickerWidget):
+                total += coin.asset.won_total(coin.candle.current_price())
+        return total
+
     def _render(self):
         # Move cursor to top-left
         sys.stdout.write("\033[H")
         
         output = []
         output.append("=" * MAX_WIDTH)
-        info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.position_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
-        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner.next()} {info}")
+        info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.pocket_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
+        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner()} {info}")
+        output.append(f"    Total Asset: 🏦 {WonY(self._total_balance())}")
         output.append("=" * MAX_WIDTH)
         
         with self.lock:

@@ -1,16 +1,19 @@
 import pandas as pd
 from typing import List
+from decimal import Decimal
 
 class Candle:
-    def __init__(self, code: str, price: float):
+    def __init__(self, code: str, price: Decimal):
         self.code = code
+        price = Decimal(str(price))
         self.open = price
         self.high = price
         self.low = price
         self.close = price
         self.prev = price
 
-    def update(self, price: float):
+    def update(self, price: Decimal):
+        price = Decimal(str(price))
         self.prev = self.close
         self.close = price
         if price > self.high:
@@ -22,12 +25,12 @@ class Candle:
         return self.close != self.prev
 
     def reset(self, ohlcv: pd.DataFrame):
-        self.open = ohlcv['open'].iloc[-1]
-        self.high = ohlcv['high'].iloc[-1]
-        self.low = ohlcv['low'].iloc[-1]
-        self.close = ohlcv['close'].iloc[-1]
+        self.open = Decimal(str(ohlcv['open'].iloc[-1]))
+        self.high = Decimal(str(ohlcv['high'].iloc[-1]))
+        self.low = Decimal(str(ohlcv['low'].iloc[-1]))
+        self.close = Decimal(str(ohlcv['close'].iloc[-1]))
 
-    def current_price(self):
+    def current_price(self) ->Decimal:
         return self.close
 
     def render(self, width: int = 20) -> str:
@@ -65,9 +68,11 @@ class Candle:
         low_idx = 0
         high_idx = width - 1
         
-        def get_pos(price):
+        def get_pos(price: Decimal):
             if total_range == 0: return 0
-            pos = int((price - self.low) / total_range * (width - 1))
+            # Ensure price is Decimal
+            d_price = Decimal(str(price)) if not isinstance(price, Decimal) else price
+            pos = int((d_price - self.low) / total_range * (width - 1))
             return max(0, min(width - 1, pos))
 
         body_start = get_pos(body_min)

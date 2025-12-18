@@ -1,0 +1,10 @@
+{
+    "messaging": {
+        "broker_type": "mqtt",
+        "mqtt": {
+            "host": "mqtt.toybox7.net",
+            "port": 1883,
+            "client_id": ""
+        }
+    }
+}

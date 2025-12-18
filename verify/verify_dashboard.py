@@ -9,7 +9,7 @@ import logging
 # Add project root to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.dashboard import Dashboard, LogWidget, TickerWidget, PositionWidget, StrategyWidget
+from src.dashboard import Dashboard, LogWidget, TickerWidget, PocketWidget, StrategyWidget
 
 # Suppress logging during tests
 logging.basicConfig(level=logging.CRITICAL)
@@ -76,8 +76,8 @@ class TestDashboard(unittest.TestCase):
         print(" -> TickerWidget created/updated from ticker dump")
 
     def test_position_update(self):
-        print("\n[Test] Generic Position Update")
-        # Position dump typically: {id, ticker, entry_price, volume, ...}
+        print("\n[Test] Generic Pocket Update")
+        # Pocket dump typically: {id, ticker, entry_price, volume, ...}
         pos_data = {
             'id': 'pos-uuid-1234',
             'ticker': 'KRW-XRP', # or XRP, my code expects ticker to handle it
@@ -92,17 +92,17 @@ class TestDashboard(unittest.TestCase):
         self.assertIn("KRW-XRP", self.dashboard.registry)
         ticker_widget = self.dashboard.registry["KRW-XRP"]
         
-        # Check Position Created
+        # Check Pocket Created
         self.assertIn("pos-uuid-1234", self.dashboard.registry)
         pos_widget = self.dashboard.registry["pos-uuid-1234"]
         
-        self.assertIsInstance(pos_widget, PositionWidget)
+        self.assertIsInstance(pos_widget, PocketWidget)
         self.assertEqual(pos_widget.parent, ticker_widget)
         self.assertIn("pos-uuid-1234", ticker_widget.children)
         
         self.assertEqual(pos_widget.entry_price, 600)
         self.assertEqual(pos_widget.volume, 500)
-        print(" -> PositionWidget created and linked to TickerWidget")
+        print(" -> PocketWidget created and linked to TickerWidget")
 
     def test_strategy_update(self):
         print("\n[Test] Generic Strategy Update")
@@ -119,7 +119,7 @@ class TestDashboard(unittest.TestCase):
         # Strategy DTO
         strategy_data = {
             'strategy_id': 'strat-rsi-111',
-            'position_id': 'pos-sol-999',
+            'pocket_id': 'pos-sol-999',
             'type': 'RSIStrategy',
             'status': 'active',
             'ticker': 'KRW-SOL'
@@ -138,14 +138,14 @@ class TestDashboard(unittest.TestCase):
         
         self.assertEqual(strat_widget.name, 'RSIStrategy')
         self.assertEqual(strat_widget.state, 'active')
-        print(" -> StrategyWidget created and linked to PositionWidget")
+        print(" -> StrategyWidget created and linked to PocketWidget")
 
     def test_orphan_strategy_update(self):
-        print("\n[Test] Generic Orphan Strategy (No Position) Update")
+        print("\n[Test] Generic Orphan Strategy (No Pocket) Update")
         # Strategy DTO with only ticker
         strategy_data = {
             'strategy_id': 'strat-buy-001',
-            # No position_id
+            # No pocket_id
             'type': 'BuyStrategy',
             'status': 'wait',
             'ticker': 'KRW-ETH'

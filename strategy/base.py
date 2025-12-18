@@ -6,10 +6,13 @@ from strategy.models import StrategyContext, StrategyConfig, Signal
 class StrategyBase(ABC):
     """Abstract Base Class for all trading strategies."""
     
+    
     def __init__(self, context: StrategyContext, config: StrategyConfig):
         self.context = context
         self.config = config
         self.signals: list[Signal] = []
+        self.display: str = "Nothing"
+        self.is_updated: bool = False
 
     @abstractmethod
     def on_tick(self, current_price: Decimal) -> Optional[Signal]:
@@ -40,6 +43,24 @@ class StrategyBase(ABC):
         Strategies can implement this for time-based logic.
         """
         pass
+
+    def on_orderbook(self, orderbook: Dict[str, Any]) -> Optional[Signal]:
+        """
+        Called when orderbook updates.
+        Should return a Signal if an action is required, or None.
+        """
+        pass
+
+    def summary(self):
+        return {
+            'strategy_id': self.context.strategy_id,
+            'type': self.config.strategy_type,
+            'status': 'ACTIVE',
+            'config': self.config.model_dump(),
+            'pocket_id': self.context.pocket_id,
+            'ticker': self.context.ticker,
+            'display': self.display
+        }
 
     def emit_signal(self, signal: Signal) -> Signal:
         """Helper to emit a signal."""

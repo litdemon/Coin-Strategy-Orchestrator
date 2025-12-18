@@ -26,6 +26,7 @@ class TestFees(unittest.TestCase):
             }
         }
         self.db = DBUpbit(self.db_path, config=config)
+        self.db.init()
         
         # Initial Deposit
         self.db.add_balance("KRW", Decimal("10000000"))
@@ -48,8 +49,8 @@ class TestFees(unittest.TestCase):
         order = self.db.create_order(ticker, "bid", "limit", price, volume)
         
         # Verify Lock Amount
-        print(f"Locked: {order.locked}")
-        self.assertEqual(order.locked, expected_total_cost)
+        print(f"Locked: {order['locked']}")
+        self.assertEqual(order['locked'], expected_total_cost)
         
         # 2. Execute Order
         print("Executing Order...")
@@ -96,7 +97,7 @@ class TestFees(unittest.TestCase):
         order = self.db.create_order(ticker, "ask", "limit", sell_price, sell_volume)
         
         # Verify Lock (Coin Locked)
-        self.assertEqual(order.locked, sell_volume)
+        self.assertEqual(order['locked'], sell_volume)
         
         # 2. Execute Order
         print("Executing Order...")

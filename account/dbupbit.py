@@ -1,9 +1,11 @@
+import time
 from decimal import Decimal
 import threading
 import uuid
 import datetime
 import logging
-from typing import List, Optional, Any, Callable
+from typing import List, Optional, Any, Callable, Dict
+import pyupbit
 
 # Project imports
 from account.dtos import AssetDTO, OrderDTO
@@ -11,6 +13,9 @@ from account.repositories import AssetRepository, OrderRepository
 from account.exceptions import InsufficientBalanceException, OrderNotFoundException
 from tools.ticker import Ticker
 from models.my_asset import MyAsset, AssetItem
+from abc import ABC, abstractmethod
+from models.orderInfo import OrderInfo
+from models.my_order import MyOrder
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +35,58 @@ class DBUpbit:
         
         # Lock for thread safety - Use RLock for reentrant locking (e.g. process_order_complete calls add_balance)
         self.lock = threading.RLock()
-        
+
+    def init(self):    
         # Initialize DB tables
         self.asset_repo.init_db()
         self.order_repo.init_db()
         
         # Synchronize locked balances
         self.synchronize_locked_balances()
+
+    def _orderDTO_to_order(self, orderDTO: OrderDTO) -> OrderInfo:
+        return OrderInfo(
+            id=orderDTO.id,
+            market=orderDTO.market,
+            side=orderDTO.side,
+            state=orderDTO.state,
+            volume=orderDTO.volume,
+            locked=orderDTO.locked,
+            avg_price=orderDTO.avg_price,
+            created_at=orderDTO.created_at,
+            updated_at=orderDTO.updated_at
+        )
+    
+    def _create_my_order_model(self, order: OrderDTO) -> MyOrder:
+        """Helper to create MyOrder model from OrderDTO with all required fields."""
+        
+        # Timestamp conversion (datetime -> ms int)
+        ts = int(order.created_at.timestamp() * 1000) if order.created_at else int(time.time() * 1000)
+        
+        return MyOrder(
+            type="myOrder",
+            code=order.market,
+            uuid=order.uuid,
+            ask_bid=order.side, # Assuming lowercase is accepted or strictly "bid"/"ask". MyOrder comment says "BID","ASK" but usually "bid"/"ask" in data.
+            order_type=order.ord_type,
+            state=order.state,
+            price=order.price,
+            avg_price=order.avg_price or Decimal("0"),
+            volume=order.volume,
+            remaining_volume=order.remaining_volume,
+            executed_volume=order.executed_volume,
+            trades_count=order.trades_count,
+            reserved_fee=Decimal("0"), # NotImplemented in OrderDTO yet
+            remaining_fee=Decimal("0"),
+            paid_fee=Decimal("0"),
+            locked=order.locked,
+            executed_funds=(order.executed_volume * (order.avg_price or Decimal("0"))),
+            prevented_volume=Decimal("0"),
+            prevented_locked=Decimal("0"),
+            order_timestamp=ts,
+            timestamp=ts,
+            stream_type="REAL" 
+        )
 
     def synchronize_locked_balances(self):
         """
@@ -78,6 +128,7 @@ class DBUpbit:
                     # New Balance = Total - New Locked 
                     #             = (Balance + Locked) - Expected
                     #             = Balance - (Expected - Locked)
+                    #             = Balance - diff
                     #             = Balance - diff
                     
                     new_balance = asset.balance - diff
@@ -157,6 +208,7 @@ class DBUpbit:
                     "balance": new_balance,
                     "avg_buy_price": new_avg_buy_price
                 })
+
             else:
                 new_asset = AssetDTO(
                     currency=currency,
@@ -263,8 +315,12 @@ class DBUpbit:
                      side: str, 
                      ord_type: str, 
                      price: Decimal, 
-                     volume: Decimal) -> OrderDTO:
+                     volume: Decimal) -> Dict[str, Any]:
         
+        def get_market_price(market: str) -> Decimal:
+            orderbook = pyupbit.get_orderbook(market)
+            return Decimal(orderbook['orderbook_units'][0]['ask_price'])
+
         if not isinstance(volume, Decimal):
             volume = Decimal(str(volume))
         if not isinstance(price, Decimal):
@@ -287,15 +343,15 @@ class DBUpbit:
                 lock_amount = price * volume
                 # Add fee buffer
                 lock_amount += lock_amount * fee_rate
-            else:
-                 # Market Buy: 
-                 # We now expect 'price' to be populated with estimated price from AccountDBManager
-                 if price > 0:
-                     lock_amount = price * volume
-                     lock_amount += lock_amount * fee_rate
-                 else:
-                     # Fallback if no price provided (shouldn't happen with updated AccountDBManager)
-                     logger.warning(f"Market Buy Order for {market} has 0 price. Locking skipped.") 
+            elif ord_type == "market":
+                # Market Buy: 
+                price = get_market_price(market)
+                if price > 0:
+                    lock_amount = price * volume
+                    lock_amount += lock_amount * fee_rate
+                else:
+                    # Fallback if no price provided (shouldn't happen with updated AccountDBManager)
+                    logger.warning(f"Market Buy Order for {market} has 0 price. Locking skipped.") 
         else:
             # Sell -> Lock Coin (currency)
             lock_currency = ticker_obj.currency
@@ -327,20 +383,10 @@ class DBUpbit:
             self.order_repo.save(new_order)
             
             # Emit myOrder event
-            msg = {
-                "type": "myOrder",
-                "code": new_order.market,
-                "uuid": new_order.uuid,
-                "ask_bid": new_order.side,
-                "order_type": new_order.ord_type,
-                "state": new_order.state,
-                "price": float(new_order.price),
-                "volume": float(new_order.volume),
-                "created_at": new_order.created_at.isoformat() if new_order.created_at else None
-            }
-            self.callback(self, msg)
+            myOrder = self._create_my_order_model(new_order)
+            self.callback(self, myOrder.model_dump())
             
-        return new_order
+        return myOrder.model_dump()
 
     def get_order(self, uuid: str) -> Optional[OrderDTO]:
         return self.order_repo.get(uuid)
@@ -367,17 +413,8 @@ class DBUpbit:
                     self.unlock_asset(ticker_obj.currency, order.locked)
                 
                 # Emit myOrder event
-                msg = {
-                    "type": "myOrder",
-                    "code": cancelled_order.market,
-                    "uuid": cancelled_order.uuid,
-                    "ask_bid": cancelled_order.side,
-                    "order_type": cancelled_order.ord_type,
-                    "state": cancelled_order.state,
-                    "price": float(cancelled_order.price),
-                    "volume": float(cancelled_order.volume),
-                }
-                self.callback(self, msg)
+                myOrder = self._create_my_order_model(cancelled_order)
+                self.callback(self, myOrder.model_dump())
                 
                 return cancelled_order
             return order
@@ -388,18 +425,7 @@ class DBUpbit:
             completed_order = order.model_copy(update={"state": "done"})
             self.order_repo.save(completed_order)
             
-            # Emit myOrder event
-            msg = {
-                "type": "myOrder",
-                "code": completed_order.market,
-                "uuid": completed_order.uuid,
-                "ask_bid": completed_order.side,
-                "order_type": completed_order.ord_type,
-                "state": completed_order.state,
-                "price": float(completed_order.price),
-                "volume": float(completed_order.volume),
-            }
-            self.callback(self, msg)
+            # Emit myOrder event MOVED to end
             
             # Logic with Locking
             krw_volume = completed_order.volume * (completed_order.price or 0)
@@ -459,7 +485,6 @@ class DBUpbit:
                         new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked, "avg_buy_price": avg_buy_price})
                         self.asset_repo.save(new_asset)
                         
-                        # Emit
                         item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked, avg_buy_price=new_asset.avg_buy_price)
                         self.callback(self, MyAsset(assets=[item]).model_dump())
 
@@ -471,7 +496,6 @@ class DBUpbit:
                     asset = self.asset_repo.get(currency)
                     if asset:
                         new_locked = asset.locked - completed_order.locked
-                        if new_locked < 0: new_locked = Decimal("0")
                         
                         # If executed volume < locked? (Partial fill?)
                         # Assuming full fill for loop.
@@ -490,6 +514,10 @@ class DBUpbit:
                 # 2. Add KRW
                 self.add_balance("KRW", krw_volume - fee)
             
+            # Emit myOrder event (Now assets are ready)
+            myOrder = self._create_my_order_model(completed_order)
+            self.callback(self, myOrder.model_dump())
+
             return completed_order
 
     def check_and_execute_orders(self, market: str, orderbook_units: List[dict]) -> Optional[OrderDTO]:
@@ -512,20 +540,20 @@ class DBUpbit:
                     # Buy limit: if market ask <= limit price
                     if order.price >= ask_price:
                         # Executed at ask_price (better price)
-                        order = order.model_copy(update={"price": ask_price})
+                        order = order.model_copy(update={"price": ask_price, "avg_price": ask_price})
                         executed = True
                 else: 
                     # Sell limit: if market bid >= limit price
                     if order.price <= bid_price:
                         # Executed at bid_price (better price)
-                        order = order.model_copy(update={"price": bid_price})
+                        order = order.model_copy(update={"price": bid_price, "avg_price": bid_price})
                         executed = True
             
             elif order.ord_type == "market":
                 # Market order always executes at current price
                 # Update price to execution price
                 execution_price = ask_price if order.side == "bid" else bid_price
-                order = order.model_copy(update={"price": execution_price, "executed_volume": order.volume})
+                order = order.model_copy(update={"price": execution_price, "executed_volume": order.volume, "avg_price": execution_price})
                 executed = True
             
             if executed:

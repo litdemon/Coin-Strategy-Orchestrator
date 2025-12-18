@@ -4,6 +4,7 @@ import pyupbit
 import datetime
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Callable
+import logging
 
 # New architecture imports
 from account.dbupbit import DBUpbit
@@ -14,6 +15,8 @@ from models.orderInfo import OrderInfo # Keep for compatibility if needed, or re
 # Or better, alias OrderDTO as OrderInfo if fields match, or change AccountBase.
 
 from tools.ticker import Ticker
+
+logger = logging.getLogger(__name__)
 
 # Maintain DB_PATH global for compatibility/patching
 DB_PATH = "account.db"
@@ -71,6 +74,9 @@ class AccountBase(ABC):
 class AccountUpbitManager(AccountBase):
 
     def __init__(self, access_key, secret_key):
+        super().__init__()
+
+    def init(self):
         self.upbit = pyupbit.Upbit(access_key, secret_key)
 
     def get_balance(self, ticker: str) -> Decimal:
@@ -130,8 +136,22 @@ class AccountUpbitManager(AccountBase):
 
 class AccountDBManager(AccountBase):
     def __init__(self, callback: Callable[[Any, dict], None], config: dict = None):
+        super().__init__()
+        self.config = config
         self.manager = DBUpbit(DB_PATH, callback, config)
     
+    def init(self):
+        self.manager.init()
+
+        # Initial Funding for Virtual Account
+        initial_balance = 0
+        if self.config and "initial_balance" in self.config:
+            initial_balance = self.config["initial_balance"]
+            
+        if initial_balance > 0 and len(self.manager.get_balances()) == 0:
+            logger.info(f"Initializing Virtual Account with {initial_balance:,.0f} KRW")
+            self.manager.add_balance("KRW", Decimal(str(initial_balance)), avg_buy_price=Decimal(1))
+
     def get_balance(self, ticker: str) -> Decimal:
         return self.manager.get_balance(ticker)
 
@@ -166,7 +186,7 @@ class AccountDBManager(AccountBase):
     def get_orderbook(self, ticker: str) -> List[dict]:
         return pyupbit.get_orderbook(ticker)
 
-    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> OrderDTO:
+    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> dict:
         return self.manager.create_order(
             market=ticker,
             side="ask",
@@ -175,8 +195,8 @@ class AccountDBManager(AccountBase):
             volume=volume
         )
     
-    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> OrderDTO:
-        return self.manager.create_order(
+    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> dict:
+        order = self.manager.create_order(
             market=ticker,
             side="bid",
             ord_type="limit",
@@ -184,16 +204,14 @@ class AccountDBManager(AccountBase):
             volume=volume
         )
     
-    def buy_market_order(self, ticker: str, volume: Decimal) -> OrderDTO:
-        # For validation, we need an estimated price.
-        # Fetch current price from pyupbit (or self.get_current_price)
-        current_price = self.get_current_price(ticker) or Decimal("0")
-        
+        return order
+    
+    def buy_market_order(self, ticker: str, volume: Decimal) -> dict:
         return self.manager.create_order(
             market=ticker,
             side="bid",
             ord_type="market",
-            price=Decimal(str(current_price)), # Pass estimated price for locking
+            price=Decimal("0"),
             volume=volume 
         )
 

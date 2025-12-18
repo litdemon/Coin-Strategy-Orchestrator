@@ -15,7 +15,7 @@ class BuyStrategyConfig(StrategyConfig):
 class BuyStrategy(StrategyBase):
     """
     Simple Buy Strategy that executes periodically or based on conditions.
-    This creates new positions (Position-less strategy).
+    This creates new positions (Pocket-less strategy).
     """
     ConfigModel = BuyStrategyConfig
 

@@ -1,4 +1,4 @@
-
+from decimal import Decimal
 from typing import List, Tuple
 from tools.candle import Candle
 
@@ -7,15 +7,18 @@ class CurrentPrice:
         self.candles = {}
         self.previous_line = ""
 
-    def update(self, code: str, price: float):
+    def update(self, code: str, price: Decimal):
+        # Ensure price is Decimal
+        d_price = Decimal(str(price)) if not isinstance(price, Decimal) else price
+        
         if code not in self.candles:
-            self.candles[code] = Candle(code, price)
+            self.candles[code] = Candle(code, d_price)
         else:
-            self.candles[code].update(price)
+            self.candles[code].update(d_price)
 
-    def get(self, code: str) -> float:
+    def get(self, code: str) -> Decimal:
         if code not in self.candles:
-            return 0.0
+            return Decimal(0)
         return self.candles[code].current_price()
     
     def is_updated(self, code: str) -> bool:
@@ -23,7 +26,7 @@ class CurrentPrice:
             return False
         return self.candles[code].is_updated()
     
-    def get_all(self) -> List[Tuple[str, float]]:
+    def get_all(self) -> List[Tuple[str, Decimal]]:
         # Return (code, latest_price) to maintain compatibility
         return [(code, candle.current_price()) for code, candle in self.candles.items()]
     
