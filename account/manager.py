@@ -207,15 +207,11 @@ class AccountDBManager(AccountBase):
         return order
     
     def buy_market_order(self, ticker: str, volume: Decimal) -> dict:
-        # For validation, we need an estimated price.
-        # Fetch current price from pyupbit (or self.get_current_price)
-        current_price = self.get_current_price(ticker) or Decimal("0")
-        
         return self.manager.create_order(
             market=ticker,
             side="bid",
             ord_type="market",
-            price=Decimal(str(current_price)), # Pass estimated price for locking
+            price=Decimal("0"),
             volume=volume 
         )
 

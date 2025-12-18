@@ -316,6 +316,10 @@ class DBUpbit:
                      price: Decimal, 
                      volume: Decimal) -> Dict[str, Any]:
         
+        def get_market_price(market: str) -> Decimal:
+            orderbook = pyupbit.get_orderbook(market)
+            return Decimal(orderbook[0]['orderbook_units'][0]['ask_price'])
+
         if not isinstance(volume, Decimal):
             volume = Decimal(str(volume))
         if not isinstance(price, Decimal):
@@ -338,15 +342,15 @@ class DBUpbit:
                 lock_amount = price * volume
                 # Add fee buffer
                 lock_amount += lock_amount * fee_rate
-            else:
-                 # Market Buy: 
-                 # We now expect 'price' to be populated with estimated price from AccountDBManager
-                 if price > 0:
-                     lock_amount = price * volume
-                     lock_amount += lock_amount * fee_rate
-                 else:
-                     # Fallback if no price provided (shouldn't happen with updated AccountDBManager)
-                     logger.warning(f"Market Buy Order for {market} has 0 price. Locking skipped.") 
+            elif ord_type == "market":
+                # Market Buy: 
+                price = get_market_price(market)
+                if price > 0:
+                    lock_amount = price * volume
+                    lock_amount += lock_amount * fee_rate
+                else:
+                    # Fallback if no price provided (shouldn't happen with updated AccountDBManager)
+                    logger.warning(f"Market Buy Order for {market} has 0 price. Locking skipped.") 
         else:
             # Sell -> Lock Coin (currency)
             lock_currency = ticker_obj.currency
