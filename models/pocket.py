@@ -18,6 +18,7 @@ class PocketBase(BaseModel):
     
     # Fields refactored from Rot
     order_id: Optional[str] = None
+    close_order_id: Optional[str] = None
     highest_price: Optional[Decimal] = None
     status: str = "active" # active, closed
 

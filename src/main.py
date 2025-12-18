@@ -36,7 +36,7 @@ from tools.currency_print import Won
 from account.manager import AccountDBManager, AccountUpbitManager
 from account.dbupbit import DBUpbit
 from src.dashboard import Dashboard
-from src.pocket_manager import Pocket, PocketManager, PocketObserver
+from src.pocket_manager import Pocket, PocketManager, PocketObserver, PocketStateType
 from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
@@ -195,11 +195,30 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         self.strategy_manager.add_strategy(strategy)
 
     def on_pocket_updated(self, pocket: Pocket):
+        ticker = Ticker(pocket.ticker)
         self.dashboard.update({'pocket': pocket.model_dump()})
+
+        if pocket.status == PocketStateType.CLOSING:
+            self.dashboard.log(f"Pocket Closing: {pocket.ticker} ({pocket.id[:8]})")
+            
+            if not pocket.close_order_id:
+                # 1. Create Order
+                order = self.account_manager.sell_market_order(ticker.market, pocket.volume)
+                # 2. Persist Order ID to Pocket
+                pocket.close_order_id = order.get('uuid')
+                pocket.save(self.pocket_manager.db_path) # Save persistence
+                self.dashboard.log(f" -> Sell Order Created: {pocket.close_order_id}")
+            else:
+                self.dashboard.log(f" -> Waiting for Close Order: {pocket.close_order_id}")
+
+        elif pocket.status == PocketStateType.ACTIVE:
+            self.dashboard.log(f"Pocket Updated: {pocket.ticker} ({pocket.id[:8]})")
+        else:
+            self.dashboard.log(f"Pocket {pocket.ticker} ({pocket.id[:8]}) is {pocket.status}")
 
     def on_pocket_deleted(self, pocket: Pocket):
         self.dashboard.update({'pocket': pocket.model_dump()})
-        self.dashboard.log(f"Pocket Closed: {pocket.ticker} ({pocket.id[:8]})")
+        self.dashboard.log(f"Pocket Deleted: {pocket.ticker} ({pocket.id[:8]})")
 
     # -- strategy events -------------------------
     def on_strategy_created(self, strategy: StrategyBase):
@@ -207,7 +226,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
     def on_strategy_signal(self, strategy: StrategyBase, signal: Signal):
         self.dashboard.update({'strategy': strategy.summary()})
-
+        # Queuing task for strategy
         self.task_queue.put(Task(cls=strategy, message=signal.model_dump()))
 
     def on_strategy_updated(self, strategy: StrategyBase):
@@ -290,16 +309,23 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         ticker = signal['ticker']
         volume = signal['amount']
         data = signal['data']
-        if data and data.get("pocket_id"):
-            pocket = self.pocket_manager.get_pocket(data.get("pocket_id"))
-            if pocket:
-                volume = pocket.volume
+        
 
-        if signal.type == SignalType.BUY:
+        if signal['type'] == SignalType.BUY:
             order = self.account_manager.buy_market_order(ticker, volume)
 
-        elif signal.type == SignalType.SELL:
+        elif signal['type'] == SignalType.SELL:
             order = self.account_manager.sell_market_order(ticker, volume)
+        
+        elif signal['type'] == SignalType.CLOSE_POCKET:
+            if data and data.get("pocket_id"):
+                self.pocket_manager.close_pocket(data.get("pocket_id"))
+            else:
+                raise Exception("Pocket ID is required for Pocket Close")
+            
+
+        else:
+            raise Exception(f"Unknown signal type: {signal['type']}")
 
             
     def process_command(self, topic: str, data: dict):
@@ -597,7 +623,16 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         ask_bid = order['ask_bid']
         # 매도 체결 완료
         if ask_bid == "ask":
-            self.pocket_manager.close_pockets_by_ticker(ticker.ticker, price, volume)
+            # Check if this order is linked to a closing pocket
+            pocket = self.pocket_manager.get_pocket_by_order_id(order['uuid'])
+            if pocket:
+                self.pocket_manager.closed_pocket(pocket.id, price)
+                self.dashboard.log(f"Pocket Closed by Order {order['uuid']}")
+            else:
+                # Fallback / Direct Sell (e.g. from CLI or Strategy without pocket link?) 
+                # Or old behavior: close by ticker matching (heuristic)
+                self.pocket_manager.close_pockets_by_ticker(ticker.ticker, price, volume)
+                
         # 매수 체결 완료
         elif ask_bid == "bid":
             self.pocket_manager.create_pocket(ticker.ticker, price, volume)

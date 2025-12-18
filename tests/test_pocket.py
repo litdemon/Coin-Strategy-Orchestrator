@@ -73,16 +73,18 @@ class TestPocketManager(unittest.TestCase):
         self.assertEqual(len(self.observer.created), 1)
         
         # 2. Close Pocket
-        close_price = Decimal("60000000")
-        self.manager.close_pocket(pocket_id, close_price)
+        self.manager.close_pocket(pocket_id)
         
+        # 3. Close Pocket
+        close_price = Decimal("60000000")
+        self.manager.closed_pocket(pocket_id, close_price)
         # Reload
         pos = self.manager.get_pocket(pocket_id)
         self.assertTrue(pos.is_closed)
         self.assertEqual(pos.close_price, close_price)
         
         # Verify update callback (Status changed)
-        self.assertEqual(len(self.observer.updated), 1)
+        self.assertEqual(len(self.observer.updated), 2)
         self.assertEqual(self.observer.updated[0].id, pos.id)
         self.assertEqual(self.observer.updated[0].status, "closed")
 

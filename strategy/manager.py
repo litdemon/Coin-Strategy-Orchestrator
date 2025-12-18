@@ -214,7 +214,11 @@ class StrategyManager:
         logger.info(f"Processing signal: {signal.model_dump_json( )}")
         
         try:
-            self.observer.on_strategy_signal(self, signal)
+            strategy = self.strategies.get(signal.strategy_id)
+            if strategy:
+                self.observer.on_strategy_signal(strategy, signal)
+            else:
+                logger.warning(f"Ignored signal from unknown strategy: {signal.strategy_id}")
         except Exception as e:
             logger.error(f"Failed to execute signal {signal}: {e}")
             

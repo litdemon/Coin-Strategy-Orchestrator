@@ -1,6 +1,7 @@
 
 import os
 import sys
+import contextlib
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import time
@@ -18,8 +19,16 @@ from models.pocket import PocketBase
 from strategy.base import Signal
 from tools.db_interface import DBInterface
 from abc import ABC, abstractmethod
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+class PocketStateType(str, Enum):
+    ACTIVE = "active"
+    CLOSING = "closing"
+    CLOSED = "closed" # Explicit close
+    PARTIAL_CLOSE = "partial_close"
+
 
 class Pocket(PocketBase, DBInterface):
 
@@ -28,7 +37,7 @@ class Pocket(PocketBase, DBInterface):
     
     @property
     def is_closed(self) -> bool:
-        return self.status == "closed"
+        return self.status == PocketStateType.CLOSED
 
 class PocketObserver(ABC):
     @abstractmethod
@@ -56,6 +65,19 @@ class PocketManager:
 
     def init(self):
         Pocket.init_db(self.db_path)
+        
+        # Migration: Ensure close_order_id exists
+        try:
+            with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+                cursor = conn.cursor()
+                cursor.execute("ALTER TABLE pockets ADD COLUMN close_order_id TEXT")
+                conn.commit()
+                logger.info("Migrated DB: Added close_order_id to pockets")
+        except sqlite3.OperationalError:
+            # Column likely already exists
+            pass
+        except Exception as e:
+            logger.error(f"Migration failed: {e}")
 
         self.pockets = { p.id: p for p in Pocket.load_all(self.db_path) if not p.is_closed }
         if self.observer:
@@ -76,16 +98,42 @@ class PocketManager:
         logger.info(f"[PocketManager] Created Pocket from Order: {pocket.ticker}")
         return pocket
 
-    def close_pocket(self, pocket_id: str, current_price: Decimal):
+    def delete_pocket(self, pocket_id: str):
         pocket = self.pockets.get(pocket_id)
         if pocket:
-            pocket.status = "closed"
-            pocket.close_price = current_price
-            pocket.close_time = time.time()
+            pocket.delete(self.db_path)
+            del self.pockets[pocket_id]
+            if self.observer:
+                self.observer.on_pocket_deleted(pocket)
+        else:
+            logger.warning(f"[PocketManager] Pocket {pocket_id} not found")
+
+    def close_pocket(self, pocket_id: str):
+        pocket = self.pockets.get(pocket_id)
+        if pocket and pocket.status == PocketStateType.ACTIVE:
+            pocket.status = PocketStateType.CLOSING
             pocket.save(self.db_path)
             
             if self.observer:
                 self.observer.on_pocket_updated(pocket)
+        else:
+            logger.warning(f"[PocketManager] Pocket {pocket_id} not found or not active")
+
+    def closed_pocket(self, pocket_id: str, closed_price: Decimal=Decimal(0)):
+        pocket = self.pockets.get(pocket_id)
+        # Allow closing from ACTIVE (heuristic/manual) or CLOSING (2-step)
+        if pocket and pocket.status in [PocketStateType.ACTIVE, PocketStateType.CLOSING]:
+            pocket.close_price = closed_price
+            pocket.close_time = time.time()
+            pocket.status = PocketStateType.CLOSED
+            pocket.save(self.db_path)
+
+            if self.observer:
+                self.observer.on_pocket_updated(pocket)
+            return pocket
+        else:
+            logger.warning(f"[PocketManager] Pocket {pocket_id} not found or not active/closing")
+        return None
 
     def close_pockets_by_ticker(self, ticker: str, price: Decimal, volume: Decimal):
         """Close pockets for a ticker based on sell volume (Lowest Entry Price first)."""
@@ -101,8 +149,8 @@ class PocketManager:
                 break
             
             if remaining_sell_vol >= pocket.volume:
-                # Full Close
-                self.close_pocket(pocket.id, price)
+                # Full Close - Immediate because order is already done
+                self.closed_pocket(pocket.id, price)
                 remaining_sell_vol -= pocket.volume
             else:
                 # Partial Close
@@ -120,7 +168,7 @@ class PocketManager:
                 closed_pocket = pocket.model_copy()
                 closed_pocket.id = str(uuid.uuid4()) # New ID for the closed chunk
                 closed_pocket.volume = closed_vol
-                closed_pocket.status = "closed"
+                closed_pocket.status = PocketStateType.CLOSED
                 closed_pocket.close_price = price
                 closed_pocket.close_time = time.time()
                 
@@ -151,6 +199,13 @@ class PocketManager:
     
     def get_pocket(self, pid:str) -> Optional[Pocket]:
         return self.pockets.get(pid)
+
+    def get_pocket_by_order_id(self, order_id: str) -> Optional[Pocket]:
+        """Find active pocket associated with a close order ID."""
+        for pocket in self.pockets.values():
+            if pocket.close_order_id == order_id:
+                return pocket
+        return None
 
 
     def archive_pocket(self, pocket_id: str):
