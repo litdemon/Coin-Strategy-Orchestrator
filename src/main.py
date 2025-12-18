@@ -142,7 +142,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
         for strategy in self.strategy_manager.strategies.values():
             if strategy.context.pocket_id in self.pocket_manager.pockets:
-                logger.info(f"Strategy {strategy.context.strategy_id} is active")
+                logger.debug(f"Strategy {strategy.context.strategy_id} is active")
                 self.dashboard.update({'strategy': strategy.summary()})
 
     def run(self):
@@ -160,7 +160,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             except Exception as e:
                 logger.error(f"Error processing task: {e}")
                 logging.error(traceback.format_exc())
-        logger.info("Task queue is empty")
+        logger.debug("Task queue is empty")
 
     def stop(self):
         self.upbit_websocket.stop()
@@ -265,7 +265,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             }))
         except json.JSONDecodeError:
             self.dashboard.log(f"Invalid JSON from {topic}")
-            logger.error(f"Invalid message: {payload}")
+            logger.debug(f"Invalid message: {payload}")
             logger.error(traceback.format_exc())
 
     def on_task(self, task: Task):
@@ -694,7 +694,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         ticker = message['code']
         current_price = message['trade_price']
 
-        logger.info(f"Ticker Update: {ticker} {current_price}")
+        # logger.info(f"Ticker Update: {ticker} {current_price}")
         
         # Update Dashboard Ticker Info
         self.dashboard.update({'ticker': message})

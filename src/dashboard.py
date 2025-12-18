@@ -102,8 +102,6 @@ class StrategyWidget(Widget):
         self.config = data.get('config', self.config)
         self.display = data.get('display', self.display)
         
-        logger.debug(f"Strategy Update: {self.name}")
-        
         # Handle simple dict update too
         if 'strategy' in data: # legacy or simple dict
              self.name = data.get('strategy', self.name)

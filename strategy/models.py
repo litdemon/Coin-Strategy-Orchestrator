@@ -61,7 +61,7 @@ class StrategyDTO(BaseModel):
     def summary(self) -> Dict[str, Any]:
         """Return summary compatible with Dashboard update."""
         return {
-            "id": self.strategy_id,
+            "strategy_id": self.strategy_id,
             "name": f"{self.type} ({self.ticker})",
             "type": self.type,
             "status": "DELETED", # Since DTOs are mostly used for transient or archived states in this context

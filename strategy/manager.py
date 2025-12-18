@@ -45,16 +45,16 @@ class StrategyManager:
     def register_strategy(self, type_name: str, strategy_cls: Type[StrategyBase]):
         """Register a strategy class."""
         self.strategy_classes[type_name] = strategy_cls
-        logger.info(f"Registered strategy type: {type_name}")
+        logger.debug(f"Registered strategy type: {type_name}")
 
     def load_strategies(self):
         """Load active strategies from DB."""
         # dtos = self.repo.get_all(status=StrategyStatus.ACTIVE)
         dtos = self.repo.get_all()
-        logger.info(f"Loading strategies from DB: {len(dtos)}")
+        logger.debug(f"Loading strategies from DB: {len(dtos)}")
         for dto in dtos:
             try:
-                logger.info(f"Loading strategy {dto.strategy_id} ({dto.type})")
+                logger.debug(f"Loading strategy {dto.strategy_id} ({dto.type})")
                 self._instantiate_strategy(dto)
             except Exception as e:
                 logger.error(f"Failed to load strategy {dto.strategy_id:8<}: {e}")
@@ -114,7 +114,7 @@ class StrategyManager:
         # callback
         self.observer.on_strategy_created(strategy)
         
-        logger.info(f"Added strategy instance {strategy_id} ({type_name})")
+        logger.debug(f"Added strategy instance {strategy_id} ({type_name})")
 
     def _instantiate_strategy(self, dto: StrategyDTO):
         """Helper to instantiate and restore a strategy."""
@@ -134,12 +134,13 @@ class StrategyManager:
         instance = cls(context, config_obj)
         instance.restore_state(dto.state)
         self.strategies[dto.strategy_id] = instance
-        logger.info(f"Instantiated strategy {dto.strategy_id:8} ({dto.type})")
+        logger.debug(f"Instantiated strategy {dto.strategy_id:8} ({dto.type})")
 
     def on_tick(self, ticker: str, price: Decimal):
         """Process price update for all relevant strategies."""
         price = Decimal(str(price)) # Ensure Decimal
         for strategy_id, strategy in self.strategies.items():
+            
             if strategy.context.ticker == ticker:
                 # If strategy is linked to a position, ideally we check if position is active?
                 # But here we just assume if it's running it processes ticks.
@@ -150,6 +151,7 @@ class StrategyManager:
                         self._persist_strategy(strategy_id)
                     elif strategy.is_updated:
                         self._persist_strategy(strategy_id)
+                        self.observer.on_strategy_updated(strategy)
                         strategy.is_updated = False # Reset flag
                 except Exception as e:
                     logger.error(f"Error in strategy {strategy_id}: {e}")
@@ -165,6 +167,7 @@ class StrategyManager:
                         self._persist_strategy(strategy_id)
                     elif strategy.is_updated:
                         self._persist_strategy(strategy_id)
+                        self.observer.on_strategy_updated(strategy)
                         strategy.is_updated = False
                 except Exception as e:
                     logger.error(f"Error in strategy {strategy_id} on_orderbook: {e}")
@@ -204,6 +207,7 @@ class StrategyManager:
                         self._persist_strategy(strategy_id) # Persist again if signal modified state
                     elif strategy.is_updated:
                         self._persist_strategy(strategy_id)
+                        self.observer.on_strategy_updated(strategy)
                         strategy.is_updated = False
                     
                 except Exception as e:
@@ -211,7 +215,7 @@ class StrategyManager:
 
     def process_signal(self, signal: Signal):
         """Execute actions based on signal."""
-        logger.info(f"Processing signal: {signal.model_dump_json( )}")
+        logger.debug(f"Processing signal: {signal.model_dump_json( )}")
         
         try:
             strategy = self.strategies.get(signal.strategy_id)

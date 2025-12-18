@@ -20,7 +20,7 @@ def setup_logging(console: bool = True):
     time_format = "%m-%d %H:%M:%S"
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
     logging.basicConfig(
-        level=logging.INFO, 
+        level=logging.DEBUG, 
         filename=os.path.join(log_dir, "coin-stratege.log"), 
         filemode="a+", 
         format=log_format, 

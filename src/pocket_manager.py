@@ -95,7 +95,7 @@ class PocketManager:
         if self.observer:
             self.observer.on_pocket_created(pocket)
         
-        logger.info(f"[PocketManager] Created Pocket from Order: {pocket.ticker}")
+        logger.debug(f"[PocketManager] Created Pocket from Order: {pocket.ticker}")
         return pocket
 
     def delete_pocket(self, pocket_id: str):
@@ -106,7 +106,7 @@ class PocketManager:
             if self.observer:
                 self.observer.on_pocket_deleted(pocket)
         else:
-            logger.warning(f"[PocketManager] Pocket {pocket_id} not found")
+            logger.debug(f"[PocketManager] Pocket {pocket_id} not found")
 
     def close_pocket(self, pocket_id: str):
         pocket = self.pockets.get(pocket_id)
