@@ -364,8 +364,18 @@ class TestTradingSystem(unittest.TestCase):
                     if state and msg.get("state") != state:
                         continue
                     return task
+                else:
+                    # Process other tasks if needed to progress state
+                     self.manager.on_task(task)
+
             time.sleep(0.01)
         return None
+
+    def _process_queue(self):
+        """Process all pending tasks in Manager queue"""
+        while not self.manager.task_queue.empty():
+            task = self.manager.task_queue.get()
+            self.manager.on_task(task)
 
     def test_full_system_flow(self):
         print("\n[VERIFY] Starting Full System Flow Verification...")
@@ -465,6 +475,89 @@ class TestTradingSystem(unittest.TestCase):
         print(f" -> Logged: {log_msg}")
         self.assertIn("Error", log_msg)
         print("[PASS] Invalid Ticker Handled Gracefully")
+
+    def test_invalid_ticker_buy_won(self):
+        print("\n[Test] Invalid Ticker Buy Won (Error Handling)")
+        self.manager.dashboard.log = MagicMock()
+        
+        invalid_ticker = "KRW-INVALID"
+        cmd = {
+            "type": "buy",
+            "action": "buy",
+            "ticker": invalid_ticker,
+            "won": "10000",
+            "volume": "0" 
+        }
+        
+        try:
+             self.manager.process_command("trading/command/test_uuid_buy", cmd)
+        except Exception as e:
+             self.fail(f"process_command raised exception for invalid ticker buy: {e}")
+             
+        self.assertTrue(self.manager.dashboard.log.called, "Dashboard log should be called on error")
+        args, _ = self.manager.dashboard.log.call_args 
+        log_msg = args[0]
+        print(f" -> Logged: {log_msg}")
+        self.assertIn("Error", log_msg)
+        print("[PASS] Invalid Ticker Buy Handled Gracefully")
+
+    def test_signal_close_reason(self):
+        print("\n[Test] Signal Close Reason Propagation")
+        # 1. Create a Pocket manually
+        ticker = "KRW-XRP"
+        price = Decimal("1000")
+        volume = Decimal("10")
+        
+        # Setup Initial Balance & Orderbook for immediate fill
+        self.db_upbit.add_balance("KRW", Decimal("100000"))
+        # self.manager.account_manager.buy_limit_order(ticker, price, volume) ... too complex async
+        # Just inject a pocket? manager.on_pocket_created?
+        # Better: use existing flow but intercept.
+        
+        # Creating pocket via creating an order and executing it
+        self.manager.account_manager.buy_limit_order(ticker, price, volume)
+        orderbook = [{"ask_price": 900.0, "bid_price": 900.0}] 
+        self.manager.account_manager.check_order(ticker, orderbook)
+        
+        # Wait for pocket creation
+        time.sleep(0.2)
+        task = self.consume_event("myOrder", state="done")
+        self.manager.on_task(task)
+        
+        pockets = self.manager.pocket_manager.get_pockets(ticker)
+        self.assertTrue(len(pockets) > 0)
+        pocket = pockets[0]
+        
+        # 2. Simulate Signal with Reason (SELL)
+        from strategy.models import Signal, SignalType
+        reason = "TestReason"
+        signal = {
+            "type": SignalType.SELL,
+            "strategy_id": "test_strat",
+            "ticker": ticker,
+            "reason": reason,
+            "amount": float(volume), # Signal uses float or Decimal? Dict usually primitives but code converts. 
+            "data": {"pocket_id": pocket.id},
+            "timestamp": time.time()
+        }
+        
+        # Process Signal (Creates Market Sell Order)
+        strategy_mock = MagicMock()
+        self.manager.on_signal_processing(strategy_mock, signal)
+        
+        # 3. Process Execution
+        # Market Sell needs to be filled
+        orderbook = [{"ask_price": 900.0, "bid_price": 900.0}]
+        self.db_upbit.check_and_execute_orders(ticker, orderbook)
+        self._process_queue() # Process 'done' event -> pocket closed
+        
+        # Verify Pocket Closed and Reason Set
+        updated_pocket = self.manager.pocket_manager.get_pockets(ticker, only_active=False)[0]
+        print(f" -> Pocket Reason: {updated_pocket.reason}")
+        print(f" -> Pocket Status: {updated_pocket.status}")
+        self.assertEqual(updated_pocket.reason, reason)
+        self.assertTrue(updated_pocket.is_closed)
+        print("[PASS] Signal Reason Verified")
 
 
 class TestInitialBalance(unittest.TestCase):

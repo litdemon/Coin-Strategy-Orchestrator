@@ -131,6 +131,7 @@ class PocketWidget(Widget):
         self.close_price = Decimal(str(data.get('close_price'))) if data.get('close_price') else self.close_price
         self.volume = Decimal(str(data.get('volume', self.volume)))
         self.status = data.get('status', self.status)
+        self.reason = data.get('reason', "")
 
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         # PnL
@@ -142,11 +143,12 @@ class PocketWidget(Widget):
         if self.status == 'closed':
             profit_rate = (self.close_price - self.entry_price) / self.close_price * 100
             profit = (self.close_price - self.entry_price) * self.volume
-            return f"   └─ Pocket | ✖ Closed {WonColor(profit)}:{RateColor(profit_rate)}"
+            reason_str = f"[{self.reason}] " if self.reason else ""
+            return f"   └─ Pocket | ✖ Closed {WonColor(profit)}:{RateColor(profit_rate)} - {reason_str}"
         else:
             # Render strategies
             strategy_str = ", ".join([s.render() for s in self.children.values() if isinstance(s, StrategyWidget)])
-            return f"   └─ Pocket | ▶ 💵 {Won(volume_krw)}:{RateColor(profit_rate)} | {strategy_str}"
+            return f"   └─ Pocket | ▶ 🪙 {Won(volume_krw)}:{RateColor(profit_rate)} | {strategy_str}"
     
 class AssetWidget(Widget):
     def __init__(self, currency: str):
@@ -163,6 +165,8 @@ class AssetWidget(Widget):
         self.locked = Decimal(data.get('locked', self.locked))
     
     def won_total(self, current_price: Decimal = Decimal("0")) -> Decimal:
+        if self.ticker.currency == "KRW":
+            return self.balance + self.locked
         won_total = ( self.balance + self.locked ) * current_price
         return won_total
     
@@ -191,7 +195,7 @@ class AssetWidget(Widget):
             won_locked = self.locked * current_price
             locked_str = f" (Lock: {WonR(won_locked)})"
 
-        won_total = self.won(current_price)
+        won_total = self.won_total(current_price)
         
         profit_str = ""
         if self.balance > Decimal("0"):
@@ -623,7 +627,7 @@ class Dashboard:
         output.append("=" * MAX_WIDTH)
         info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.pocket_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
         output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner()} {info}")
-        output.append(f"    Total balance: {Won(self._total_balance())}")
+        output.append(f"    Total Asset: 🏦 {WonY(self._total_balance())}")
         output.append("=" * MAX_WIDTH)
         
         with self.lock:

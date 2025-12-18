@@ -24,6 +24,7 @@ class PocketBase(BaseModel):
 
     close_price: Optional[Decimal] = None
     close_time: Optional[float] = None
+    reason: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True

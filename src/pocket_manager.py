@@ -108,6 +108,17 @@ class PocketManager:
         else:
             logger.debug(f"[PocketManager] Pocket {pocket_id} not found")
 
+    def set_reason(self, pocket_id: str, reason: str):
+        pocket = self.pockets.get(pocket_id)
+        if pocket:
+            pocket.reason = reason
+            pocket.save(self.db_path)
+            # Not notifying observer yet to avoid spam, or should I? 
+            # Dashboard update will pick it up on next status change or explicit update.
+            # But the user wants to see it. So yes, notify.
+            if self.observer:
+                self.observer.on_pocket_updated(pocket)
+
     def close_pocket(self, pocket_id: str):
         pocket = self.pockets.get(pocket_id)
         if pocket and pocket.status == PocketStateType.ACTIVE:

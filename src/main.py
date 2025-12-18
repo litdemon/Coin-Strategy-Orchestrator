@@ -41,7 +41,7 @@ from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
 from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType
-from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig, TakeProfitStrategy, TakeProfitConfig, StopLossStrategy, StopLossConfig
+from strategy.buy_strategy import BuyStrategy, BuyStrategyConfig
 from strategy.default_strategy import DefaultStrategy, DefaultStrategyConfig
 import uuid
 
@@ -71,9 +71,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
     def init_strategy(self):
         self.strategy_manager = StrategyManager(db_path=DB_PATH, observer=self)
         self.strategy_manager.register_strategy("default", DefaultStrategy)
-        self.strategy_manager.register_strategy("take_profit", TakeProfitStrategy)
-        self.strategy_manager.register_strategy("trailing_stop", TrailingStopStrategy)
-        self.strategy_manager.register_strategy("stop_loss", StopLossStrategy)
+        self.strategy_manager.register_strategy("buy", BuyStrategy)
 
         self.strategy_manager.load_strategies()
 
@@ -328,10 +326,14 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             order = self.account_manager.buy_market_order(ticker, volume)
 
         elif signal['type'] == SignalType.SELL:
+            if data and data.get("pocket_id") and signal.get("reason"):
+                self.pocket_manager.set_reason(data.get("pocket_id"), signal.get("reason"))
             order = self.account_manager.sell_market_order(ticker, volume)
         
         elif signal['type'] == SignalType.CLOSE_POCKET:
             if data and data.get("pocket_id"):
+                if signal.get("reason"):
+                    self.pocket_manager.set_reason(data.get("pocket_id"), signal.get("reason"))
                 self.pocket_manager.close_pocket(data.get("pocket_id"))
             else:
                 raise Exception("Pocket ID is required for Pocket Close")
@@ -384,8 +386,15 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                     price = None
 
                 if price is None and not is_market:
-                     price = pyupbit.get_current_price(ticker.ticker)
-                     self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
+                    try:
+                        price = pyupbit.get_current_price(ticker.ticker)
+                        if price is None:
+                            self.dashboard.log(f"Error: Price not found for {ticker.ticker}")
+                            return
+                        self.dashboard.log(f"Buy Price not specified. Using Current Price: {price}")
+                    except Exception as e:
+                        self.dashboard.log(f"Error checking price for {ticker.ticker}: {e}")
+                        return
 
                 if won > 0 and volume <= 0:
                     # Calculate volume based on won amount
@@ -394,13 +403,20 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                          # If price not provided, we fetched it at line 325 
                          pass
                     
-                    calc_price = price if (price and price > 0) else Decimal(pyupbit.get_current_price(ticker.ticker))
+                    try:
+                        calc_price = price if (price and price > 0) else Decimal(pyupbit.get_current_price(ticker.ticker))
+                        if calc_price is None:
+                            self.dashboard.log(f"Error: Price not found for {ticker.ticker}")
+                            return
+                    except Exception as e:
+                        self.dashboard.log(f"Error checking price for {ticker.ticker}: {e}")
+                        return
                     
                     # Update price only if it was not provided (and thus is market order logic?) 
                     # Actually if user gave price, we shouldn't overwrite 'price' variable if it's a Limit Order.
                     # But we need a price to calc volume.
                     
-                    fee = Decimal('0.005')
+                    fee = Decimal('0.0005')
                     volume = (won - won * fee) / calc_price
                     
                     # If user provided price, keep it. If not, price might have been set to current_price at line 325.
