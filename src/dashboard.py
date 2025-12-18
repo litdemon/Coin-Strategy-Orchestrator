@@ -119,42 +119,41 @@ class PocketWidget(Widget):
     def __init__(self, id: str, parent: 'Widget'):
         super().__init__(id, parent)
         self.entry_price = Decimal("0")
+        self.close_price = Decimal("0")
         self.volume = Decimal("0")
-        self.strategies: Dict[str, StrategyWidget] = {} # Map ID to Widget
+        # self.strategies: Dict[str, StrategyWidget] = {} # Map ID to Widget
+        self.status = ""
 
     def update(self, data: Dict[str, Any]):
+        # logger.info(f"Pocket Update: {json.dumps(data, indent=4, default=str)}")
         # data is Pocket dict or dump
         self.entry_price = Decimal(str(data.get('entry_price', self.entry_price)))
+        self.close_price = Decimal(str(data.get('close_price'))) if data.get('close_price') else self.close_price
         self.volume = Decimal(str(data.get('volume', self.volume)))
-        
+        self.status = data.get('status', self.status)
+
     def render(self, current_price: Decimal = Decimal("0")) -> str:
-        # Render strategies
-        strategy_str = ", ".join([s.render() for s in self.children.values()])
-        
         # PnL
-        if current_price and self.entry_price:
-            profit_rate = (current_price - self.entry_price) / self.entry_price * 100
-            if profit_rate < 0:
-                profit_rate_str = f"\033[34m{profit_rate:.2f}%\033[0m"
-            else:
-                profit_rate_str = f"\033[31m+{profit_rate:.2f}%\033[0m"
-        else:
-            profit_rate_str = "0.00%"
+        profit_rate = (current_price - self.entry_price) / self.entry_price * 100
 
         # Volume
         volume_krw = self.volume * self.entry_price
-        pid_short = str(self.id)[:4]
 
-        strategy_str = ", ".join([s.render() for s in self.children.values()])        
-
-        return f"   └─ Pocket | Vol: {Won(volume_krw)}:{profit_rate_str} | {strategy_str}"
+        if self.status == 'closed':
+            profit_rate = (self.close_price - self.entry_price) / self.close_price * 100
+            profit = (self.close_price - self.entry_price) * self.volume
+            return f"   └─ Pocket | ✖ Closed {WonColor(profit)}:{RateColor(profit_rate)}"
+        else:
+            # Render strategies
+            strategy_str = ", ".join([s.render() for s in self.children.values() if isinstance(s, StrategyWidget)])
+            return f"   └─ Pocket | ▶ 💵 {Won(volume_krw)}:{RateColor(profit_rate)} | {strategy_str}"
     
 class AssetWidget(Widget):
     def __init__(self, currency: str):
         super().__init__(currency, None) # Root widget
         self.ticker = Ticker(currency)
         self.balance = Decimal("0")
-        self.avg_buy_price = Decimal("0")
+        self.avg_buy_price = Decimal("1")
         self.locked = Decimal("0")
         
     
@@ -163,12 +162,24 @@ class AssetWidget(Widget):
         self.avg_buy_price = Decimal(data.get('avg_buy_price', self.avg_buy_price))
         self.locked = Decimal(data.get('locked', self.locked))
     
+    def won_total(self, current_price: Decimal = Decimal("0")) -> Decimal:
+        won_total = ( self.balance + self.locked ) * current_price
+        return won_total
+    
+    def buy_price(self):
+        won = self.balance * self.avg_buy_price
+        return won
+    
+    def locked_price(self):
+        won = self.locked * self.avg_buy_price
+        return won
+    
     def render(self, current_price: Decimal = Decimal("0")) -> str:
         
         if self.ticker.currency == "KRW":
             if self.locked > Decimal("0"):
-                 return f"{WonY(self.balance)} (Lock: {WonR(self.locked)})"
-            return f"{WonY(self.balance)}"
+                 return f"💰 {WonY(self.balance)} (Lock: {WonR(self.locked)})"
+            return f"💰 {WonY(self.balance)}"
 
         profit_rate = Decimal("0")        
         if self.avg_buy_price > Decimal("0"):
@@ -180,14 +191,14 @@ class AssetWidget(Widget):
             won_locked = self.locked * current_price
             locked_str = f" (Lock: {WonR(won_locked)})"
 
-        won_total = ( self.balance + self.locked ) * current_price
+        won_total = self.won(current_price)
         
         profit_str = ""
         if self.balance > Decimal("0"):
             won_profit = ( current_price - self.avg_buy_price ) * self.balance
             profit_str = f" ({WonColor(won_profit)}:{RateColor(profit_rate)})"
 
-        return f"{WonY(won_total)}{locked_str}{profit_str} "
+        return f"💰 {WonY(won_total)}{locked_str}{profit_str} "
 
 
 class OrderWidget(Widget):
@@ -339,6 +350,7 @@ class Dashboard:
         self.pocket_spinner = Spinner()
         self.strategy_spinner = Spinner()
         self.order_spinner = Spinner()
+        self.total_balance = Decimal("0")
         
 
     def start(self):
@@ -596,6 +608,13 @@ class Dashboard:
                 logger.error(f"Error in run loop: {e}")
                 self.running = False
 
+    def _total_balance(self):
+        total = Decimal("0")
+        for coin in self.registry.values():
+            if isinstance(coin, TickerWidget):
+                total += coin.asset.won_total(coin.candle.current_price())
+        return total
+
     def _render(self):
         # Move cursor to top-left
         sys.stdout.write("\033[H")
@@ -604,6 +623,7 @@ class Dashboard:
         output.append("=" * MAX_WIDTH)
         info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.pocket_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
         output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner()} {info}")
+        output.append(f"    Total balance: {Won(self._total_balance())}")
         output.append("=" * MAX_WIDTH)
         
         with self.lock:

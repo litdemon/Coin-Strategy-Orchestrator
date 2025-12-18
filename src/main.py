@@ -41,7 +41,8 @@ from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
 from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType
-from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig, TakeProfitStrategy, TakeProfitConfig
+from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig, TakeProfitStrategy, TakeProfitConfig, StopLossStrategy, StopLossConfig
+from strategy.default_strategy import DefaultStrategy, DefaultStrategyConfig
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -69,8 +70,10 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
     def init_strategy(self):
         self.strategy_manager = StrategyManager(db_path=DB_PATH, observer=self)
-        self.strategy_manager.register_strategy("trailing_stop", TrailingStopStrategy)
+        self.strategy_manager.register_strategy("default", DefaultStrategy)
         self.strategy_manager.register_strategy("take_profit", TakeProfitStrategy)
+        self.strategy_manager.register_strategy("trailing_stop", TrailingStopStrategy)
+        self.strategy_manager.register_strategy("stop_loss", StopLossStrategy)
 
         self.strategy_manager.load_strategies()
 
@@ -186,12 +189,14 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             budget=pocket.volume, 
             pocket_id=pocket.id
         )
-        config = TrailingStopConfig(
+        config = DefaultStrategyConfig(
             entry_price=pocket.entry_price,
-            trail_percent=Decimal("0.02") 
+            trail_percent=Decimal("0.02"),
+            stop_loss_percent=Decimal("0.02"),
+            take_profit_percent=Decimal("0.05")
         )
         
-        strategy = TrailingStopStrategy(context=context, config=config)
+        strategy = DefaultStrategy(context=context, config=config)
         self.strategy_manager.add_strategy(strategy)
 
     def on_pocket_updated(self, pocket: Pocket):
@@ -432,13 +437,22 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                     is_market = True
                     price = None
                 
-                if price is None and not is_market:
-                    price = pyupbit.get_current_price(ticker.ticker)
-                     
-                if won > 0 and volume <= 0:
-                    price = Decimal( pyupbit.get_current_price(ticker.ticker) )
-                    fee = Decimal(0.005)
-                    volume = (won - won * fee) / price
+                try:
+                    current_price = pyupbit.get_current_price(ticker.ticker)
+                    if current_price is None:
+                        self.dashboard.log(f"Error: Price not found for {ticker.ticker}")
+                        return
+                    
+                    if price is None and not is_market:
+                        price = Decimal(current_price)
+                        
+                    if won > 0 and volume <= 0:
+                        price = Decimal(current_price)
+                        fee = Decimal(0.005)
+                        volume = (won - won * fee) / price
+                except Exception as e:
+                    self.dashboard.log(f"Error checking price for {ticker.ticker}: {e}")
+                    return
                 
                 # Check for "Sell All" (Volume = -1)
                 is_sell_all = False
