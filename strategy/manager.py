@@ -280,3 +280,27 @@ class StrategyManager:
             for s in self.strategies.values() 
             if s.context.pocket_id == pocket_id
         ]
+
+    def delete_strategies_by_pocket_id(self, pocket_id: str):
+        """Delete all strategies associated with a pocket_id."""
+        logger.info(f"Deleting strategies for Pocket {pocket_id}")
+        
+        # Identify strategies to delete first to avoid runtime error during iteration
+        to_delete = []
+        
+        # 1. Check Active Strategies (Memory)
+        for strategy_id, strategy in self.strategies.items():
+            if strategy.context.pocket_id == pocket_id:
+                to_delete.append(strategy_id)
+        
+        # 2. Check DB (for stopped/inactive ones if needed? Or just all ACTIVE ones)
+        # Using repo to find all strategies with pocket_id might be better?
+        # Current Repo interface doesn't support complex filtering easily, but we can iterate.
+        all_dtos = self.repo.get_all()
+        for dto in all_dtos:
+            if dto.pocket_id == pocket_id and dto.strategy_id not in to_delete:
+                to_delete.append(dto.strategy_id)
+        
+        for strategy_id in to_delete:
+            self.stop_strategy(strategy_id)
+            self.archive_strategy(strategy_id)

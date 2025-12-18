@@ -216,9 +216,17 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         else:
             self.dashboard.log(f"Pocket {pocket.ticker} ({pocket.id[:8]}) is {pocket.status}")
 
+        # Check for CLOSED status to cleanup strategies
+        if pocket.status == PocketStateType.CLOSED:
+             self.strategy_manager.delete_strategies_by_pocket_id(pocket.id)
+             self.dashboard.log(f" -> Strategies cleaned up for Closed Pocket {pocket.id[:8]}")
+
     def on_pocket_deleted(self, pocket: Pocket):
         self.dashboard.update({'pocket': pocket.model_dump()})
         self.dashboard.log(f"Pocket Deleted: {pocket.ticker} ({pocket.id[:8]})")
+        
+        # Cleanup associated strategies
+        self.strategy_manager.delete_strategies_by_pocket_id(pocket.id)
 
     # -- strategy events -------------------------
     def on_strategy_created(self, strategy: StrategyBase):

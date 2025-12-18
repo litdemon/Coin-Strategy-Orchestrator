@@ -5,6 +5,7 @@ import uuid
 import datetime
 import logging
 from typing import List, Optional, Any, Callable, Dict
+import pyupbit
 
 # Project imports
 from account.dtos import AssetDTO, OrderDTO
@@ -318,7 +319,7 @@ class DBUpbit:
         
         def get_market_price(market: str) -> Decimal:
             orderbook = pyupbit.get_orderbook(market)
-            return Decimal(orderbook[0]['orderbook_units'][0]['ask_price'])
+            return Decimal(orderbook['orderbook_units'][0]['ask_price'])
 
         if not isinstance(volume, Decimal):
             volume = Decimal(str(volume))
