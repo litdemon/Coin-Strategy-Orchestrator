@@ -424,9 +424,7 @@ class DBUpbit:
             completed_order = order.model_copy(update={"state": "done"})
             self.order_repo.save(completed_order)
             
-            # Emit myOrder event
-            myOrder = self._create_my_order_model(completed_order)
-            self.callback(self, myOrder.model_dump())
+            # Emit myOrder event MOVED to end
             
             # Logic with Locking
             krw_volume = completed_order.volume * (completed_order.price or 0)
@@ -486,7 +484,6 @@ class DBUpbit:
                         new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked, "avg_buy_price": avg_buy_price})
                         self.asset_repo.save(new_asset)
                         
-                        # Emit
                         item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked, avg_buy_price=new_asset.avg_buy_price)
                         self.callback(self, MyAsset(assets=[item]).model_dump())
 
@@ -498,7 +495,6 @@ class DBUpbit:
                     asset = self.asset_repo.get(currency)
                     if asset:
                         new_locked = asset.locked - completed_order.locked
-                        if new_locked < 0: new_locked = Decimal("0")
                         
                         # If executed volume < locked? (Partial fill?)
                         # Assuming full fill for loop.
@@ -517,6 +513,10 @@ class DBUpbit:
                 # 2. Add KRW
                 self.add_balance("KRW", krw_volume - fee)
             
+            # Emit myOrder event (Now assets are ready)
+            myOrder = self._create_my_order_model(completed_order)
+            self.callback(self, myOrder.model_dump())
+
             return completed_order
 
     def check_and_execute_orders(self, market: str, orderbook_units: List[dict]) -> Optional[OrderDTO]:
