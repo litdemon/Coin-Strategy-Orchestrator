@@ -1,0 +1,7 @@
+pyupbit
+python-dotenv
+pandas
+numpy
+pydantic
+mcp
+websockets
