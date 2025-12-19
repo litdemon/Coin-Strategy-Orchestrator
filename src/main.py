@@ -41,7 +41,7 @@ from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
 from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType
-from strategy.buy_strategy import BuyStrategy, BuyStrategyConfig
+from strategy.buy_strategy import ScalpingStrategy, ScalpingStrategyConfig
 from strategy.default_strategy import DefaultStrategy, DefaultStrategyConfig
 import uuid
 
@@ -71,7 +71,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
     def init_strategy(self):
         self.strategy_manager = StrategyManager(db_path=DB_PATH, observer=self)
         self.strategy_manager.register_strategy("default", DefaultStrategy)
-        self.strategy_manager.register_strategy("buy", BuyStrategy)
+        self.strategy_manager.register_strategy("scalping_strategy", ScalpingStrategy)
 
         self.strategy_manager.load_strategies()
 

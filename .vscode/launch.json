@@ -5,21 +5,24 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "verify_buy_strategy.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "verify/verify_buy_strategy.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "app.py",
             "type": "debugpy",
             "request": "launch",
             "program": "app.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--mode",
-                "virtual"
-            ]
-        },
-        {
-            "name": "main.py",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "src/main.py",
             "console": "integratedTerminal"
         }
     ]

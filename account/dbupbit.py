@@ -174,7 +174,7 @@ class DBUpbit:
             if (asset.balance + asset.locked) > 0
         ]
 
-    def add_balance(self, ticker: str, amount: Any, avg_buy_price: Decimal = Decimal("0")) -> dict:
+    def add_balance(self, ticker: str, amount: Any, avg_buy_price: Decimal = Decimal("0"), emit: bool = True) -> dict:
         """Add balance (deposit or buy result). Updates avg_buy_price."""
         ticker_obj = Ticker(ticker)
         
@@ -231,7 +231,8 @@ class DBUpbit:
             msg_dict = my_asset_msg.model_dump()
             
             # Invoke callback
-            self.callback(self, msg_dict)
+            if emit:
+                self.callback(self, msg_dict)
             
             return msg_dict
 
@@ -432,88 +433,85 @@ class DBUpbit:
             fee_rate = self.get_fee_rate(completed_order.market)
             fee = krw_volume * fee_rate
             
+            updated_assets = []
+
             if completed_order.side == "bid":
                 # Bought Coin
                 # 1. Add Coin (No lock involved)
-                self.add_balance(completed_order.market, completed_order.volume, completed_order.price)
+                msg_dict = self.add_balance(completed_order.market, completed_order.volume, completed_order.price, emit=False)
+                if msg_dict.get('assets'):
+                    updated_assets.extend(msg_dict['assets'])
                 
                 # 2. Sub KRW
                 # KRW was Locked. We need to Consume Locked KRW.
                 # Total Cost = krw_volume + fee
-                # Locked was = (price * volume) * 1.0005 (approx)
-                
-                # We need to reduce LOCKED by order.locked (release lock)
-                # And reduce BALANCE by Cost (spend)
-                # But wait, 'locked' definition:
-                #    balance = available
-                #    total = balance + locked?
-                # In my lock_asset implementation:
-                #    new_balance = asset.balance - amount (Available reduced)
-                #    new_locked = asset.locked + amount (Locked increased)
-                
-                # So to Spend:
-                #    locked -= order.locked
-                #    balance -> No change (already deducted from available)
-                #    Wait, if executed cost < locked? Refund difference to balance.
                 
                 currency = "KRW"
-                with self.lock:
-                    asset = self.asset_repo.get(currency)
-                    if asset:
-                        # Spend locked
-                        new_locked = asset.locked - completed_order.locked
-                        if new_locked < 0: new_locked = Decimal("0")
+                # with self.lock: # Already in lock
+                asset = self.asset_repo.get(currency)
+                if asset:
+                    # Spend locked
+                    new_locked = asset.locked - completed_order.locked
+                    if new_locked < 0: new_locked = Decimal("0")
+                    
+                    # Refund excess (if any)
+                    actual_cost = krw_volume + fee
+                    excess = completed_order.locked - actual_cost
+                    
+                    new_balance = asset.balance + excess
+                    if new_balance <= 0: 
+                        new_balance = Decimal("0")
+                        new_locked = Decimal("0")
+                        avg_buy_price = Decimal("0")
+                    else:
+                        avg_buy_price = asset.avg_buy_price
                         
-                        # Refund excess (if any)
-                        # Actual Cost
-                        actual_cost = krw_volume + fee
-                        excess = completed_order.locked - actual_cost
-                        
-                        # Since cost is paid, we don't add back to balance unless excess
-                        # Asset Balance (Available) doesn't change since it was already deducted?
-                        # Yes.
-                        # So new_balance = asset.balance + excess
-                        
-                        new_balance = asset.balance + excess
-                        if new_balance <= 0: 
-                            new_balance = Decimal("0")
-                            new_locked = Decimal("0")
-                            avg_buy_price = Decimal("0")
-                        else:
-                            avg_buy_price = asset.avg_buy_price
-                            
-                        new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked, "avg_buy_price": avg_buy_price})
-                        self.asset_repo.save(new_asset)
-                        
-                        item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked, avg_buy_price=new_asset.avg_buy_price)
-                        self.callback(self, MyAsset(assets=[item]).model_dump())
+                    new_asset = asset.model_copy(update={"balance": new_balance, "locked": new_locked, "avg_buy_price": avg_buy_price})
+                    self.asset_repo.save(new_asset)
+                    
+                    item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked, avg_buy_price=new_asset.avg_buy_price)
+                    updated_assets.append(item)
 
             else:
                 # Sold Coin
                 # 1. Sub Coin (Consumed Locked)
                 currency = Ticker(completed_order.market).currency
-                with self.lock:
-                    asset = self.asset_repo.get(currency)
-                    if asset:
-                        new_locked = asset.locked - completed_order.locked
-                        
-                        # If executed volume < locked? (Partial fill?)
-                        # Assuming full fill for loop.
-                        # If full fill, excess is 0.
-                        
-                        avg_buy_price = asset.avg_buy_price
-                        if asset.balance == 0 and new_locked == 0:
-                            avg_buy_price = Decimal("0")
-                        
-                        new_asset = asset.model_copy(update={"locked": new_locked, "avg_buy_price": avg_buy_price})
-                        self.asset_repo.save(new_asset)
-                        
-                        item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked)
-                        self.callback(self, MyAsset(assets=[item]).model_dump())
+                # with self.lock: # Already in lock
+                asset = self.asset_repo.get(currency)
+                if asset:
+                    new_locked = asset.locked - completed_order.locked
+                    
+                    avg_buy_price = asset.avg_buy_price
+                    if asset.balance == 0 and new_locked == 0:
+                        avg_buy_price = Decimal("0")
+                    
+                    new_asset = asset.model_copy(update={"locked": new_locked, "avg_buy_price": avg_buy_price})
+                    self.asset_repo.save(new_asset)
+                    
+                    item = AssetItem(currency=currency, balance=new_asset.balance, locked=new_asset.locked)
+                    updated_assets.append(item)
                         
                 # 2. Add KRW
-                self.add_balance("KRW", krw_volume - fee)
+                msg_dict = self.add_balance("KRW", krw_volume - fee, emit=False)
+                if msg_dict.get('assets'):
+                    updated_assets.extend(msg_dict['assets'])
             
+            # Emit Batched Asset Update
+            if updated_assets:
+                # Convert dict items (from add_balance return) to AssetItem if needed?
+                # add_balance returns dict with 'assets': [dict, dict].
+                # Manual creates AssetItem.
+                # MyAsset expects list of AssetItem.
+                # We need to normalize.
+                final_items = []
+                for item in updated_assets:
+                    if isinstance(item, dict):
+                        final_items.append(AssetItem(**item))
+                    else:
+                        final_items.append(item)
+                
+                self.callback(self, MyAsset(assets=final_items).model_dump())
+
             # Emit myOrder event (Now assets are ready)
             myOrder = self._create_my_order_model(completed_order)
             self.callback(self, myOrder.model_dump())
