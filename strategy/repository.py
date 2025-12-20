@@ -3,7 +3,7 @@ import json
 import contextlib
 from typing import List, Optional
 from decimal import Decimal
-from strategy.models import StrategyDTO, StrategyStatus
+from strategy.models import StrategyDTO, StrategyStatus, StrategyType
 
 class StrategyRepository:
     def __init__(self, db_path: str):
@@ -15,6 +15,7 @@ class StrategyRepository:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS strategies (
                     strategy_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
                     type TEXT NOT NULL,
                     ticker TEXT NOT NULL,
                     budget TEXT NOT NULL,
@@ -33,6 +34,7 @@ class StrategyRepository:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS strategies_archive (
                     strategy_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
                     type TEXT NOT NULL,
                     ticker TEXT NOT NULL,
                     budget TEXT NOT NULL,
@@ -53,11 +55,12 @@ class StrategyRepository:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO strategies 
-                (strategy_id, type, ticker, budget, pocket_id, status, config, state, created_at, updated_at, last_execution_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (strategy_id, name, type, ticker, budget, pocket_id, status, config, state, created_at, updated_at, last_execution_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 strategy.strategy_id,
-                strategy.type,
+                strategy.name,
+                strategy.type.value, # Store Enum as string
                 strategy.ticker,
                 str(strategy.budget),
                 strategy.pocket_id,
@@ -85,11 +88,12 @@ class StrategyRepository:
             
             cursor.execute("""
                 INSERT OR REPLACE INTO strategies_archive
-                (strategy_id, type, ticker, budget, pocket_id, status, config, state, created_at, updated_at, last_execution_time, archived_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (strategy_id, name, type, ticker, budget, pocket_id, status, config, state, created_at, updated_at, last_execution_time, archived_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 dto.strategy_id,
-                dto.type,
+                dto.name,
+                dto.type.value,
                 dto.ticker,
                 str(dto.budget),
                 dto.pocket_id,
@@ -137,7 +141,8 @@ class StrategyRepository:
 
         return StrategyDTO(
             strategy_id=row['strategy_id'],
-            type=row['type'],
+            name=row['name'],
+            type=StrategyType(row['type']),
             ticker=row['ticker'],
             budget=Decimal(row['budget']),
             pocket_id=row['pocket_id'],

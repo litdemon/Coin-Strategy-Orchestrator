@@ -54,7 +54,8 @@ class StrategyBase(ABC):
     def summary(self):
         return {
             'strategy_id': self.context.strategy_id,
-            'type': self.config.strategy_type,
+            'name': self.config.name,
+            'type': self.config.type,
             'status': 'ACTIVE',
             'config': self.config.model_dump(),
             'pocket_id': self.context.pocket_id,

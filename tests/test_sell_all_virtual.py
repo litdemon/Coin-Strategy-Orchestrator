@@ -98,7 +98,7 @@ class TestSellAllVirtual(unittest.TestCase):
         pos = self.manager.pocket_manager.create_pocket(ticker, Decimal(price), Decimal(volume))
         
         # C. Create Strategy
-        from strategy.models import StrategyContext, StrategyConfig
+        from strategy.models import StrategyContext, StrategyConfig, StrategyType
         from strategy.base import StrategyBase
         
         # Mock strategy class
@@ -109,10 +109,11 @@ class TestSellAllVirtual(unittest.TestCase):
             
         self.manager.strategy_manager.register_strategy("mock", MockStrategy)
         sid = self.manager.strategy_manager.create_strategy(
-            type_name="mock",
+            name="mock",
+            type=StrategyType.BUY,
             ticker=ticker,
             budget=Decimal(volume),
-            config={"strategy_type": "mock"}, # Added required field
+            config={"name": "mock", "type": StrategyType.BUY}, # Added required field
             pocket_id=pos.id
         )
         

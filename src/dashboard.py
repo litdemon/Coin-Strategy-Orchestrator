@@ -97,7 +97,7 @@ class StrategyWidget(Widget):
         self.spinner.next()
         # logger.info(f"Strategy Update: {json.dumps(data, indent=4, default=str)}")
         # data is StrategyDTO or dict
-        self.name = data.get('type', self.name)
+        self.name = data.get('name', data.get('type', self.name)) # Updated to prioritize name
         self.state = data.get('status', self.state)
         self.config = data.get('config', self.config)
         self.display = data.get('display', self.display)
@@ -148,7 +148,7 @@ class PocketWidget(Widget):
         else:
             # Render strategies
             strategy_str = ", ".join([s.render() for s in self.children.values() if isinstance(s, StrategyWidget)])
-            return f"   └─ Pocket | ▶ 🪙 {Won(volume_krw)}:{RateColor(profit_rate)} | {strategy_str}"
+            return f"   └─ Pocket | ▶ ⛁ {Won(volume_krw)}:{RateColor(profit_rate)} | {strategy_str}"
     
 class AssetWidget(Widget):
     def __init__(self, currency: str):

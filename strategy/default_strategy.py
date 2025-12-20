@@ -2,10 +2,11 @@
 from decimal import Decimal
 from typing import Optional, Dict, Any, Type
 from strategy.base import StrategyBase
-from strategy.models import StrategyContext, StrategyConfig, Signal, SignalType
+from strategy.models import StrategyContext, StrategyConfig, Signal, SignalType, StrategyType
 
 class DefaultStrategyConfig(StrategyConfig):
-    strategy_type: str = "default"
+    name: str = "default"
+    type: StrategyType = StrategyType.SELL
     entry_price: Decimal
     
     # Trailing Stop

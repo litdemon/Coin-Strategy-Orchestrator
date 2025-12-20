@@ -5,10 +5,11 @@ import pyupbit
 import pandas as pd
 import numpy as np
 from strategy.base import StrategyBase
-from strategy.models import StrategyContext, StrategyConfig, Signal, SignalType
+from strategy.models import StrategyContext, StrategyConfig, Signal, SignalType, StrategyType
 
 class ScalpingStrategyConfig(StrategyConfig):
-    strategy_type: str = "scalping_strategy"
+    name: str = "scalping_strategy"
+    type: StrategyType = StrategyType.BUY
     
     # 매수 설정
     buy_amount: Decimal

@@ -5,6 +5,10 @@ import time
 import uuid
 from pydantic import BaseModel, Field
 
+class StrategyType(str, Enum):
+    BUY = "buy"
+    SELL = "sell"
+
 class StrategyStatus(str, Enum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -31,7 +35,8 @@ class Signal(BaseModel):
 
 class StrategyConfig(BaseModel):
     """Base configuration for a strategy."""
-    strategy_type: str
+    name: str # Strategy implementation name (e.g. "scalping", "default")
+    type: StrategyType # Strategy Category (BUY/SELL)
     execution_interval: Optional[int] = None # Seconds. If set, on_schedule is called.
     schedule: Optional[str] = None # Crontab expression (e.g., "* * * * *")
     
@@ -41,7 +46,8 @@ class StrategyConfig(BaseModel):
 class StrategyDTO(BaseModel):
     """Data Transfer Object for persisting Strategy state."""
     strategy_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    type: str
+    name: str # Strategy Name
+    type: StrategyType # Strategy Type (BUY/SELL)
     ticker: str
     budget: Decimal
     pocket_id: Optional[str] = None # Optional link to a specific pocket
@@ -62,8 +68,8 @@ class StrategyDTO(BaseModel):
         """Return summary compatible with Dashboard update."""
         return {
             "strategy_id": self.strategy_id,
-            "name": f"{self.type} ({self.ticker})",
-            "type": self.type,
+            "name": f"{self.name} ({self.ticker})",
+            "type": self.type, # This is now StrategyType enum
             "status": "DELETED", # Since DTOs are mostly used for transient or archived states in this context
             "profit_rate": 0.0,
             "last_message": "Strategy Deleted" 

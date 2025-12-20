@@ -3,7 +3,7 @@ import time
 from typing import Dict, Type, List, Optional, Any
 from decimal import Decimal
 
-from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType
+from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType, StrategyType
 from strategy.base import StrategyBase
 from strategy.repository import StrategyRepository
 from account.manager import AccountBase
@@ -42,10 +42,10 @@ class StrategyManager:
         # Initialize DB
         self.repo.init_db()
 
-    def register_strategy(self, type_name: str, strategy_cls: Type[StrategyBase]):
+    def register_strategy(self, strategy_name: str, strategy_cls: Type[StrategyBase]):
         """Register a strategy class."""
-        self.strategy_classes[type_name] = strategy_cls
-        logger.debug(f"Registered strategy type: {type_name}")
+        self.strategy_classes[strategy_name] = strategy_cls
+        logger.debug(f"Registered strategy type: {strategy_name}")
 
     def load_strategies(self):
         """Load active strategies from DB."""
@@ -54,20 +54,22 @@ class StrategyManager:
         logger.debug(f"Loading strategies from DB: {len(dtos)}")
         for dto in dtos:
             try:
-                logger.debug(f"Loading strategy {dto.strategy_id} ({dto.type})")
+                # Use dto.name instead of dto.type
+                logger.debug(f"Loading strategy {dto.strategy_id} ({dto.name})")
                 self._instantiate_strategy(dto)
             except Exception as e:
                 logger.error(f"Failed to load strategy {dto.strategy_id:8<}: {e}")
                 logger.error(traceback.format_exc())
                 # Potentially mark as ERROR in DB?
     
-    def create_strategy(self, type_name: str, ticker: str, budget: Decimal, config: Dict[str, Any], pocket_id: Optional[str] = None) -> str:
+    def create_strategy(self, name: str, type: StrategyType, ticker: str, budget: Decimal, config: Dict[str, Any], pocket_id: Optional[str] = None) -> str:
         """Create and start a new strategy."""
-        if type_name not in self.strategy_classes:
-            raise ValueError(f"Unknown strategy type: {type_name}")
+        if name not in self.strategy_classes:
+            raise ValueError(f"Unknown strategy name: {name}")
         
         dto = StrategyDTO(
-            type=type_name,
+            name=name,
+            type=type,
             ticker=ticker,
             budget=budget,
             pocket_id=pocket_id,
@@ -82,7 +84,7 @@ class StrategyManager:
         # callback
         self.observer.on_strategy_created(dto)
         
-        log_msg = f"Created strategy {dto.strategy_id} ({type_name}) for {ticker}"
+        log_msg = f"Created strategy {dto.strategy_id} ({name}) for {ticker}"
         if pocket_id:
             log_msg += f" (Pocket: {pocket_id})"
         logger.info(log_msg)
@@ -92,14 +94,16 @@ class StrategyManager:
         """Add an already instantiated strategy."""
         # Ensure it's active
         strategy_id = strategy.context.strategy_id
-        type_name = strategy.config.strategy_type
+        strategy_name = strategy.config.name
+        strategy_type = strategy.config.type
         
         # Verify it uses a known type, or auto-register?
         # Ideally we should register it if unknown, but for now let's assume valid type.
         
         dto = StrategyDTO(
             strategy_id=strategy_id,
-            type=type_name,
+            name=strategy_name,
+            type=strategy_type,
             ticker=strategy.context.ticker,
             budget=strategy.context.budget,
             pocket_id=strategy.context.pocket_id,
@@ -114,11 +118,16 @@ class StrategyManager:
         # callback
         self.observer.on_strategy_created(strategy)
         
-        logger.debug(f"Added strategy instance {strategy_id} ({type_name})")
+        logger.debug(f"Added strategy instance {strategy_id} ({strategy_name})")
 
     def _instantiate_strategy(self, dto: StrategyDTO):
         """Helper to instantiate and restore a strategy."""
-        cls = self.strategy_classes[dto.type]
+        # Instantiate based on 'name'
+        if dto.name not in self.strategy_classes:
+             logger.error(f"Strategy class not found for name: {dto.name}")
+             return
+
+        cls = self.strategy_classes[dto.name]
         
         config_cls = getattr(cls, 'ConfigModel', StrategyConfig)
         config_obj = config_cls(**dto.config)
@@ -134,7 +143,7 @@ class StrategyManager:
         instance = cls(context, config_obj)
         instance.restore_state(dto.state)
         self.strategies[dto.strategy_id] = instance
-        logger.debug(f"Instantiated strategy {dto.strategy_id:8} ({dto.type})")
+        logger.debug(f"Instantiated strategy {dto.strategy_id:8} ({dto.name})")
 
     def on_tick(self, ticker: str, price: Decimal):
         """Process price update for all relevant strategies."""

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from decimal import Decimal
 
 sys.path.append(os.getcwd())
-from strategy.models import StrategyContext, StrategyConfig, StrategyDTO
+from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyType
 from strategy.base import StrategyBase
 from strategy.manager import StrategyManager, StrategyObserver
 from account.manager import AccountBase
@@ -38,9 +38,10 @@ class TestStrategySchedule(unittest.TestCase):
 
     def test_execution_interval(self):
         # 1. Create a strategy with 1 second interval
-        config = {"strategy_type": "MockStrategy", "execution_interval": 1}
+        config = {"name": "MockStrategy", "type": StrategyType.BUY, "execution_interval": 1}
         sid = self.manager.create_strategy(
-            type_name="MockStrategy", 
+            name="MockStrategy",
+            type=StrategyType.BUY,
             ticker="KRW-BTC", 
             budget=Decimal("10000"), 
             config=config

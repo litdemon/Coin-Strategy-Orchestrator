@@ -6,8 +6,8 @@ import time
 
 from strategy.base import StrategyBase
 from strategy.manager import StrategyManager
-from strategy.trailingstop import TrailingStopStrategy, TrailingStopConfig
-from strategy.models import StrategyContext, Signal
+from strategy.default_strategy import DefaultStrategy, DefaultStrategyConfig
+from strategy.models import StrategyContext, Signal, StrategyType
 
 class TestStrategyDisplay(unittest.TestCase):
     def setUp(self):
@@ -20,24 +20,25 @@ class TestStrategyDisplay(unittest.TestCase):
             self.manager.strategies = {} # Reset
 
     def test_trailing_stop_display_update(self):
-        """Verify TrailingStopStrategy updates display and sets is_updated flag."""
-        context = StrategyContext(strategy_id="test_id", ticker="KRW-BTC", budget=Decimal("1000"))
-        config = TrailingStopConfig(
-            strategy_type="trailing_stop",
+        """Verify DefaultStrategy (TrailingStop) updates display and sets is_updated flag."""
+        context = StrategyContext(strategy_id="test_id", ticker="KRW-BTC", budget=Decimal("1000"), last_execution_time=0)
+        config = DefaultStrategyConfig(
+            name="default", # Updated Name
+            type=StrategyType.SELL,
             trail_percent=Decimal("0.1"), # 10%
             entry_price=Decimal("100")
         )
-        strategy = TrailingStopStrategy(context, config)
+        strategy = DefaultStrategy(context, config)
         
         # 1. Initial State
-        self.assertEqual(strategy.display, "Nothing")
-        self.assertFalse(strategy.is_updated)
+        self.assertEqual(strategy.display, "Nothing") 
+        self.assertFalse(strategy.is_updated) 
         
         # 2. First Tick (Update Highest)
-        # Price 100 -> Highest 100
+        # Price 100 -> Highest 100 -> Stop Price 90
         strategy.on_tick(Decimal("100"))
         
-        expected_display = "stop:90 high:100"
+        expected_display = "TS:90"
         self.assertEqual(strategy.display, expected_display)
         self.assertTrue(strategy.is_updated)
         
@@ -46,12 +47,12 @@ class TestStrategyDisplay(unittest.TestCase):
         
         # 3. Second Tick (No Change)
         strategy.on_tick(Decimal("100"))
-        self.assertFalse(strategy.is_updated) # Should remain False if no change
+        self.assertFalse(strategy.is_updated) 
         
         # 4. Third Tick (New High)
         strategy.on_tick(Decimal("110"))
         # High 110, Stop 99
-        self.assertEqual(strategy.display, "stop:99 high:110")
+        self.assertEqual(strategy.display, "TS:99")
         self.assertTrue(strategy.is_updated)
 
     def test_manager_propagates_updates(self):
@@ -79,11 +80,11 @@ class TestStrategyDisplay(unittest.TestCase):
         # Verify Notification
         self.mock_observer.on_strategy_updated.assert_called_with(mock_strategy)
         
-        # Verify Flag Reset
-        # Since mock_strategy is a Mock object, we check if attribute was set
-        # But directly setting attribute on Mock might works or verified via call if it was a property?
-        # A simple MagicMock attribute access works like a variable.
-        self.assertFalse(mock_strategy.is_updated)
+        # Verify Flag Reset (Mock doesn't automatically reset attributes but we can check if it was set to False)
+        # self.assertFalse(mock_strategy.is_updated) 
+        # With MagicMock property setting might be tricky to test unless we check setattr calls, but for now this is fine.
+        # Actually in `manager.on_tick`: strategy.is_updated = False
+        self.assertEqual(mock_strategy.is_updated, False) # MagicMock stores the last assigned value
 
 if __name__ == "__main__":
     unittest.main()
