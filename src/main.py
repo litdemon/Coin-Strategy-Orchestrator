@@ -43,6 +43,7 @@ from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
 from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType, StrategyType
 from strategy.buy_strategy import ScalpingStrategy, ScalpingStrategyConfig
 from strategy.default_strategy import DefaultStrategy, DefaultStrategyConfig
+from strategy.volume_strategy import VolumeSpikeStrategy, VolumeSpikeStrategyConfig
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         self.strategy_manager = StrategyManager(db_path=DB_PATH, observer=self)
         self.strategy_manager.register_strategy("default", DefaultStrategy)
         self.strategy_manager.register_strategy("scalping_strategy", ScalpingStrategy)
+        self.strategy_manager.register_strategy("volume_spike_strategy", VolumeSpikeStrategy)
 
         self.strategy_manager.load_strategies()
 
@@ -142,9 +144,14 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         self.init_pockets()
 
         for strategy in self.strategy_manager.strategies.values():
-            if strategy.context.pocket_id in self.pocket_manager.pockets:
-                logger.debug(f"Strategy {strategy.context.strategy_id} is active")
-                self.dashboard.update({'strategy': strategy.summary()})
+            if strategy.context.pocket_id:
+                if strategy.context.pocket_id in self.pocket_manager.pockets:
+                     logger.debug(f"Strategy {strategy.context.strategy_id} is active (Pocket {strategy.context.pocket_id})")
+                     self.dashboard.update({'strategy': strategy.summary()})
+            else:
+                 # Independent Strategy (e.g. Buy Strategy)
+                 logger.debug(f"Strategy {strategy.context.strategy_id} is active (Independent)")
+                 self.dashboard.update({'strategy': strategy.summary()})
 
     def run(self):
         self.dashboard.start() # Start Dashboard
@@ -337,12 +344,9 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 self.pocket_manager.close_pocket(data.get("pocket_id"))
             else:
                 raise Exception("Pocket ID is required for Pocket Close")
-            
-
         else:
             raise Exception(f"Unknown signal type: {signal['type']}")
 
-            
     def process_command(self, topic: str, data: dict):
         """Process commands from Messaging System."""
         try:
@@ -438,9 +442,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                     order = self.account_manager.buy_market_order(ticker.ticker, volume)
                 else:
                     order = self.account_manager.buy_limit_order(ticker.ticker, price, volume)
-                
-                # self.dashboard.log(f"Order Placed: {order.get('side')}: {order.get('price')} @ {order.get('volume')}")
-                
+
             elif action == "sell":
                 # Implement Sell Logic or delegate
                 ticker = Ticker(data.get("ticker"))
@@ -452,16 +454,16 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 if price <= 0:
                     is_market = True
                     price = None
-                
+
                 try:
                     current_price = pyupbit.get_current_price(ticker.ticker)
                     if current_price is None:
                         self.dashboard.log(f"Error: Price not found for {ticker.ticker}")
                         return
-                    
+
                     if price is None and not is_market:
                         price = Decimal(current_price)
-                        
+
                     if won > 0 and volume <= 0:
                         price = Decimal(current_price)
                         fee = Decimal(0.005)
@@ -655,13 +657,18 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                         
                         # Create config
                         # We need to map 'name' to the correct Config class or generic dict
-                        # For scalping_strategy, it expects buy_amount
                         config = {
                             "name": name,
                             "type": StrategyType.BUY.value,
-                            "buy_amount": budget # MVP: Use full budget as buy amount
+                            "buy_amount": budget 
                         }
                         
+                        if name == "volume_spike_strategy":
+                             # Default config for volume spike
+                             config["check_interval"] = 60
+                             config["period"] = 20
+                             config["multiplier"] = 1.5
+
                         try:
                             sid = self.strategy_manager.create_strategy(
                                 name=name,
