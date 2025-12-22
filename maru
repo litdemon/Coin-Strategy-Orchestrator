@@ -120,6 +120,16 @@ def main():
     # Orders
     subparsers.add_parser("orders", help="List open orders")
 
+    # Strategy
+    strategy_parser = subparsers.add_parser("strategy", help="Manage strategies")
+    strategy_subparsers = strategy_parser.add_subparsers(dest="strategy_command", required=True)
+    
+    # Strategy Buy
+    strat_buy_parser = strategy_subparsers.add_parser("buy", help="Create a Buy Strategy")
+    strat_buy_parser.add_argument("ticker", help="Ticker (e.g., KRW-BTC)")
+    strat_buy_parser.add_argument("budget", type=float, help="Budget to allocate")
+    strat_buy_parser.add_argument("--name", default="scalping_strategy", help="Strategy Name (default: scalping_strategy)")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -168,6 +178,16 @@ def main():
         
     elif args.command == "orders":
         send_command("orders")
+
+    elif args.command == "strategy":
+        if args.strategy_command == "buy":
+            send_command("strategy", 
+                sub_action="create", 
+                type="buy", 
+                ticker=args.ticker, 
+                budget=args.budget, 
+                name=args.name
+            )
 
 if __name__ == "__main__":
     main()

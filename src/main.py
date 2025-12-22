@@ -40,7 +40,7 @@ from src.pocket_manager import Pocket, PocketManager, PocketObserver, PocketStat
 from src.current_price import CurrentPrice
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
 from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
-from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType
+from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType, StrategyType
 from strategy.buy_strategy import ScalpingStrategy, ScalpingStrategyConfig
 from strategy.default_strategy import DefaultStrategy, DefaultStrategyConfig
 import uuid
@@ -633,6 +633,56 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                      self.messaging.publish(reply_to, {"text": response_text})
                  else:
                      self.dashboard.log(response_text)
+
+            elif action == "strategy":
+                sub_action = data.get("sub_action")
+                strategy_type_str = data.get("type") # "buy" or "sell"
+                
+                if sub_action == "create":
+                    if strategy_type_str == "buy":
+                        ticker_str = data.get("ticker")
+                        budget = Decimal(str(data.get("budget", "0")))
+                        name = data.get("name", "scalping_strategy")
+                        
+                        if not ticker_str or budget <= 0:
+                            self.dashboard.log("Invalid Strategy Creation Params")
+                            return
+
+                        # Subscribe to ticker if needed
+                        ticker = Ticker(ticker_str)
+                        if ticker.ticker not in self.upbit_websocket.codes:
+                             self.upbit_websocket.add_subscription([ticker.ticker])
+                        
+                        # Create config
+                        # We need to map 'name' to the correct Config class or generic dict
+                        # For scalping_strategy, it expects buy_amount
+                        config = {
+                            "name": name,
+                            "type": StrategyType.BUY.value,
+                            "buy_amount": budget # MVP: Use full budget as buy amount
+                        }
+                        
+                        try:
+                            sid = self.strategy_manager.create_strategy(
+                                name=name,
+                                type=StrategyType.BUY,
+                                ticker=ticker.ticker,
+                                budget=budget,
+                                config=config
+                            )
+                            self.dashboard.log(f"CMD STRATEGY: Created {name} ({sid}) for {ticker.ticker}")
+                            
+                            reply_to = data.get("reply_to")
+                            if reply_to:
+                                self.messaging.publish(reply_to, {"text": f"Strategy Created: {sid}"})
+                                
+                        except Exception as e:
+                            self.dashboard.log(f"Failed to create strategy: {e}")
+                            logger.error(f"Failed to create strategy: {e}")
+                    else:
+                        self.dashboard.log(f"Unknown strategy type: {strategy_type_str}")
+                else:
+                    self.dashboard.log(f"Unknown strategy sub-action: {sub_action}")
 
             else:
                 self.dashboard.log(f"Unknown Action: {action}")

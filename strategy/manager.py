@@ -82,7 +82,8 @@ class StrategyManager:
         self._instantiate_strategy(dto)
 
         # callback
-        self.observer.on_strategy_created(dto)
+        strategy = self.strategies[dto.strategy_id]
+        self.observer.on_strategy_created(strategy)
         
         log_msg = f"Created strategy {dto.strategy_id} ({name}) for {ticker}"
         if pocket_id:
