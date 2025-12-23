@@ -71,7 +71,7 @@ def send_command(action, **kwargs):
     command_handler.send()
     
     # If status or account, wait for response?
-    if action in ["status", "account", "pockets", "orders"]:
+    if action in ["status", "account", "pockets", "orders", "strategy"]:
         print("⏳ Waiting for response...")
             
         # Wait up to 3 seconds
@@ -129,6 +129,13 @@ def main():
     strat_buy_parser.add_argument("ticker", help="Ticker (e.g., KRW-BTC)")
     strat_buy_parser.add_argument("budget", type=float, help="Budget to allocate")
     strat_buy_parser.add_argument("--name", default="scalping_strategy", help="Strategy Name (default: scalping_strategy)")
+
+    # Strategy List
+    strategy_subparsers.add_parser("list", help="List active strategies")
+
+    # Strategy Delete
+    strat_del_parser = strategy_subparsers.add_parser("delete", help="Delete a strategy")
+    strat_del_parser.add_argument("strategy_id", help="Strategy ID to delete")
 
     args = parser.parse_args()
 
@@ -188,6 +195,10 @@ def main():
                 budget=args.budget, 
                 name=args.name
             )
+        elif args.strategy_command == "list":
+            send_command("strategy", sub_action="list")
+        elif args.strategy_command == "delete":
+            send_command("strategy", sub_action="delete", strategy_id=args.strategy_id)
 
 if __name__ == "__main__":
     main()

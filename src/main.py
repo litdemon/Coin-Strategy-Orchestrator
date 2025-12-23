@@ -257,7 +257,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         self.dashboard.update({'strategy': strategy.summary()})
 
     def on_strategy_deleted(self, strategy: StrategyBase):
-        self.dashboard.update({'strategy': strategy.summary()})
+        self.dashboard.update({'remove': {'id': strategy.strategy_id}})
 
     # -- WebSocket Events -------------------------
     def on_ws_opened(self, cls):
@@ -694,6 +694,64 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                             logger.error(f"Failed to create strategy: {e}")
                     else:
                         self.dashboard.log(f"Unknown strategy type: {strategy_type_str}")
+                elif sub_action == "list":
+                     strategies = self.strategy_manager.strategies
+                     
+                     if not strategies:
+                         response_text = "No active strategies."
+                     else:
+                         lines = []
+                         lines.append(f"{'ID':<8} | {'Name':<20} | {'Ticker':<10} | {'Type':<6}")
+                         lines.append("-" * 60)
+                         
+                         for sid, strategy in strategies.items():
+                             s_name = strategy.config.name[:20]
+                             s_ticker = strategy.context.ticker
+                             s_type = strategy.config.type
+                             lines.append(f"{sid[:8]:<8} | {s_name:<20} | {s_ticker:<10} | {s_type:<6}")
+                         
+                         response_text = "\n".join(lines)
+                     
+                     reply_to = data.get("reply_to")
+                     if reply_to:
+                         self.messaging.publish(reply_to, {"text": response_text})
+                     else:
+                         self.dashboard.log(response_text)
+
+                elif sub_action == "delete":
+                    strategy_id = data.get("strategy_id")
+                    if not strategy_id:
+                        self.dashboard.log("Delete command requires strategy_id")
+                        return
+
+                    # Support short ID
+                    target_id = strategy_id
+                    if len(strategy_id) < 36:
+                         # Find full ID
+                         found = False
+                         for sid in self.strategy_manager.strategies.keys():
+                             if sid.startswith(strategy_id):
+                                 target_id = sid
+                                 found = True
+                                 break
+                         if not found:
+                             self.dashboard.log(f"Strategy ID not found: {strategy_id}")
+                             return
+
+                    try:
+                        self.strategy_manager.stop_strategy(target_id)
+                        self.strategy_manager.archive_strategy(target_id)
+                        msg = f"Strategy Deleted: {target_id}"
+                        self.dashboard.log(msg)
+                        
+                        reply_to = data.get("reply_to")
+                        if reply_to:
+                            self.messaging.publish(reply_to, {"text": msg})
+                    except Exception as e:
+                        err_msg = f"Failed to delete strategy: {e}"
+                        self.dashboard.log(err_msg)
+                        logger.error(err_msg)
+
                 else:
                     self.dashboard.log(f"Unknown strategy sub-action: {sub_action}")
 

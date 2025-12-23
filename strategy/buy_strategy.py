@@ -3,8 +3,10 @@ from typing import Optional, Dict, Any, List
 import time
 import logging
 import pyupbit
+import traceback
 import pandas as pd
 import numpy as np
+from tools.ticker import Ticker
 from strategy.base import StrategyBase
 from strategy.models import StrategyContext, StrategyConfig, Signal, SignalType, StrategyType
 
@@ -57,14 +59,16 @@ class ScalpingStrategy(StrategyBase):
         self.last_check_time: float = 0
         self.position_entry_price: Optional[Decimal] = None
         self.last_signal_strength: int = 0
+        self.ticker = Ticker(self.context.ticker)
         self.logger = logging.getLogger(__name__)
         
     def _get_market_data(self) -> pd.DataFrame:
         """1분봉 데이터 가져오기"""
         try:
-            df = pyupbit.get_ohlcv(self.context.ticker, count=600, period=1)
+            market = self.ticker.market
+            df = pyupbit.get_ohlcv(market, interval="minute1", count=600)
             if df is None or df.empty:
-                self.logger.warning(f"Failed to get market data for {self.context.ticker}")
+                self.logger.warning(f"Failed to get market data for {market}")
                 return pd.DataFrame()
             return df
         except Exception as e:
@@ -74,15 +78,14 @@ class ScalpingStrategy(StrategyBase):
     def _get_orderbook_pressure(self) -> Dict[str, Any]:
         """호가창 매수/매도 압력 분석"""
         try:
-            orderbook = pyupbit.get_orderbook(ticker=[self.context.ticker])
+            market = self.ticker.market
+            orderbook = pyupbit.get_orderbook(ticker=market)
             if not orderbook or len(orderbook) == 0:
                 return {'buy_pressure': 0.5, 'bid_volume': 0, 'ask_volume': 0}
             
-            orderbook = orderbook[0]
-            
             # 매수/매도 호가 총량 계산
-            bid_volume = sum([item['size'] for item in orderbook['orderbook_units']])
-            ask_volume = sum([item['size'] for item in orderbook['orderbook_units']])
+            bid_volume = sum([item['bid_size'] for item in orderbook['orderbook_units']])
+            ask_volume = sum([item['ask_size'] for item in orderbook['orderbook_units']])
             
             # 매수 압력 비율
             total_volume = bid_volume + ask_volume
@@ -95,6 +98,7 @@ class ScalpingStrategy(StrategyBase):
             }
         except Exception as e:
             self.logger.error(f"Error getting orderbook: {e}")
+            self.logger.error(traceback.format_exc())
             return {'buy_pressure': 0.5, 'bid_volume': 0, 'ask_volume': 0}
     
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:

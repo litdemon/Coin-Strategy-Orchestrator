@@ -76,8 +76,6 @@ class VolumeSpikeStrategy(StrategyBase):
             
             self.display = f"Vol Ratio: {ratio:.2f}x"
             self.is_updated = True
-
-            self.logger.info(f"Volume Spike Detected! Ratio: {ratio:.2f} > {self.config.multiplier}")
             
             if ratio >= self.config.multiplier:
                 logger.info(f"Volume Spike Detected! Ratio: {ratio:.2f} > {self.config.multiplier}")
