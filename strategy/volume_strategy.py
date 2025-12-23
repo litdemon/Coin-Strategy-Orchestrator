@@ -12,7 +12,7 @@ class VolumeSpikeStrategyConfig(StrategyConfig):
     name: str = "volume_spike_strategy"
     type: StrategyType = StrategyType.BUY
     
-    check_interval: int = 60  # 1 minute
+    execution_interval: int = 60  # 1 minute
     period: int = 20
     multiplier: float = 1.5
     buy_amount: Decimal # Required for execution logic to know how much to buy
@@ -30,6 +30,7 @@ class VolumeSpikeStrategy(StrategyBase):
     def __init__(self, context: StrategyContext, config: VolumeSpikeStrategyConfig):
         super().__init__(context, config)
         self.config: VolumeSpikeStrategyConfig = config
+        self.logger = logging.getLogger(__name__)
         self.last_volume_ratio = 0.0
 
     def on_tick(self, current_price: Decimal) -> Optional[Signal]:
@@ -76,6 +77,8 @@ class VolumeSpikeStrategy(StrategyBase):
             self.display = f"Vol Ratio: {ratio:.2f}x"
             self.is_updated = True
 
+            self.logger.info(f"Volume Spike Detected! Ratio: {ratio:.2f} > {self.config.multiplier}")
+            
             if ratio >= self.config.multiplier:
                 logger.info(f"Volume Spike Detected! Ratio: {ratio:.2f} > {self.config.multiplier}")
                 

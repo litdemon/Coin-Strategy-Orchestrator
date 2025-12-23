@@ -20,7 +20,8 @@ from typing import List, Tuple, Any
 from dotenv import load_dotenv
 
 import pyupbit
-from queue import Queue
+import pyupbit
+from queue import Queue, Empty
 
 # Import models
 # Messaging
@@ -163,8 +164,13 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         is_stop = False
         while not is_stop:
             try:
-                task = self.task_queue.get()
-                is_stop = self.on_task(task)
+                try:
+                    task = self.task_queue.get(timeout=1)
+                    is_stop = self.on_task(task)
+                except Empty:
+                    # Run scheduled tasks
+                    if self.strategy_manager:
+                        self.strategy_manager.on_schedule()
             except Exception as e:
                 logger.error(f"Error processing task: {e}")
                 logging.error(traceback.format_exc())
@@ -665,7 +671,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                         
                         if name == "volume_spike_strategy":
                              # Default config for volume spike
-                             config["check_interval"] = 60
+                             config["execution_interval"] = 60
                              config["period"] = 20
                              config["multiplier"] = 1.5
 
@@ -797,7 +803,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         self.account_manager.check_order(tiker.ticker, orderbook)
 
         if self.strategy_manager:
-            self.strategy_manager.on_orderbook(tiker, orderbook)
+            self.strategy_manager.on_orderbook(tiker.ticker, orderbook)
 
     # -- Main -------------------------------------
 if __name__ == "__main__":

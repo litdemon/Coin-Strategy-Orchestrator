@@ -11,29 +11,44 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.main import Manager
 
+import logging.handlers
+
 def setup_logging(console: bool = True):
     """Initialize logging configuration."""
     log_dir = "logs"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
         
-    time_format = "%m-%d %H:%M:%S"
+    # Date removed from format, only time
+    time_format = "%H:%M:%S"
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
-    logging.basicConfig(
-        level=logging.DEBUG, 
-        filename=os.path.join(log_dir, "coin-stratege.log"), 
-        filemode="a+", 
-        format=log_format, 
-        datefmt=time_format
-    )
     
-    # Also print to console
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    
+    # Clear existing handlers
+    if root_logger.handlers:
+        root_logger.handlers = []
+
+    # File Handler - Timed Rotation (Daily at midnight)
+    log_file = os.path.join(log_dir, "coin-stratege.log")
+    file_handler = logging.handlers.TimedRotatingFileHandler(
+        filename=log_file,
+        when='midnight',
+        interval=1, # 1 day
+        backupCount=30, # Keep 30 days
+        encoding='utf-8'
+    )
+    file_handler.setFormatter(logging.Formatter(log_format, datefmt=time_format))
+    file_handler.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+    
+    # Console Handler
     if console:
-        console = logging.StreamHandler()
-        console.setLevel(logging.INFO)
-        formatter = logging.Formatter(log_format, datefmt=time_format)
-        console.setFormatter(formatter)
-        logging.getLogger('').addHandler(console)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(logging.Formatter(log_format, datefmt=time_format))
+        root_logger.addHandler(console_handler)
 
 def main():
     parser = argparse.ArgumentParser(description="Coin Strategy Bot")

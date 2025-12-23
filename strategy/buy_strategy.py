@@ -1,6 +1,7 @@
 from decimal import Decimal
 from typing import Optional, Dict, Any, List
 import time
+import logging
 import pyupbit
 import pandas as pd
 import numpy as np
@@ -23,7 +24,7 @@ class ScalpingStrategyConfig(StrategyConfig):
     strong_signal_threshold: int = 7  # 7점 이상이면 강한 매수
     
     # 체크 간격
-    check_interval: int = 60  # 1분마다 체크
+    execution_interval: int = 60  # 1분마다 체크
     
     # 지표 설정
     ma_short_period: int = 5
@@ -56,6 +57,7 @@ class ScalpingStrategy(StrategyBase):
         self.last_check_time: float = 0
         self.position_entry_price: Optional[Decimal] = None
         self.last_signal_strength: int = 0
+        self.logger = logging.getLogger(__name__)
         
     def _get_market_data(self) -> pd.DataFrame:
         """1분봉 데이터 가져오기"""
@@ -235,7 +237,7 @@ class ScalpingStrategy(StrategyBase):
         current_time = time.time()
         
         # 체크 간격 확인
-        if current_time - self.last_check_time < self.config.check_interval:
+        if current_time - self.last_check_time < self.config.execution_interval:
             return None
         
         self.last_check_time = current_time

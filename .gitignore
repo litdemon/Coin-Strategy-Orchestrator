@@ -3,3 +3,4 @@
 *.db
 coin-stratege.log
 **/*.log
+logs
