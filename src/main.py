@@ -663,10 +663,31 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                         
                         # Create config
                         # We need to map 'name' to the correct Config class or generic dict
+                        
+                        # Calculate Volume from Budget (KRW)
+                        current_price = self.current_prices.get(ticker.ticker)
+                        if not current_price:
+                            try:
+                                current_price = pyupbit.get_current_price(ticker.ticker)
+                            except:
+                                pass
+                        
+                        calc_volume = Decimal("0")
+                        if current_price:
+                            cp = Decimal(str(current_price))
+                            fee_rate = Decimal("0.0005")
+                            # Volume = Budget / (Price * (1 + Fee))
+                            if cp > 0:
+                                calc_volume = budget / (cp * (1 + fee_rate))
+                                self.dashboard.log(f"Calc Volume: {calc_volume:.8f} (Budget: {budget}, Price: {cp})")
+                        else:
+                             self.dashboard.log(f"Warning: Could not fetch price for {ticker.ticker}. Using Budget as raw volume (dangerous if not intended).")
+                             calc_volume = budget
+
                         config = {
                             "name": name,
                             "type": StrategyType.BUY.value,
-                            "buy_amount": budget 
+                            "buy_amount": calc_volume 
                         }
                         
                         if name == "volume_spike_strategy":
