@@ -4,6 +4,7 @@ import time
 import logging
 import traceback
 import argparse
+import json
 from dotenv import load_dotenv
 
 # Add project root to sys.path
@@ -50,9 +51,21 @@ def setup_logging(console: bool = True):
         console_handler.setFormatter(logging.Formatter(log_format, datefmt=time_format))
         root_logger.addHandler(console_handler)
 
+def load_config(file_path: str = "default.json") -> dict:
+    """Load configuration from JSON file."""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return config
+    except FileNotFoundError:
+        # Fallback if file missing (though usually we should fail or warn)
+        logging.getLogger(__name__).warning("default.json not found, using minimal defaults")
+        return {}
+
 def main():
     parser = argparse.ArgumentParser(description="Coin Strategy Bot")
     parser.add_argument('--mode', choices=['virtual', 'real'], default='virtual', help='Running mode: virtual or real (upbit)')
+    parser.add_argument('--config', default='default.json', help='Configuration file path')
     args = parser.parse_args()
 
     # Setup Logging
@@ -68,23 +81,15 @@ def main():
 
     manager = Manager(virtual=is_virtual)
     
-    # Default Configuration
-    config = {
-        "messaging": {
-            "broker_type": "mqtt",
-            "mqtt": {
-                "host": "mqtt.toybox7.net",
-                "port": 1883,
-                "client_id": f"strategy_manager_{int(time.time())}"
-            }
-        },
-        "account": {
-            "initial_balance": 10000000,
-            "fees": {
-                "KRW": 0.0005  # 0.05%
-            }
-        }
-    }
+    # Load Configuration
+    config = load_config(args.config)
+    
+    # Dynamic Client ID if empty
+    if not config.get("messaging", {}).get("mqtt", {}).get("client_id"):
+        # Ensure structure exists
+        if "messaging" not in config: config["messaging"] = {}
+        if "mqtt" not in config["messaging"]: config["messaging"]["mqtt"] = {}
+        config["messaging"]["mqtt"]["client_id"] = f"strategy_manager_{int(time.time())}"
     
     manager.init(config=config)
     try:

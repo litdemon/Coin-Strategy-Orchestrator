@@ -6,5 +6,11 @@
             "port": 1883,
             "client_id": ""
         }
+    },
+    "account": {
+        "initial_balance": 10000000,
+        "fees": {
+            "KRW": 0.0005
+        }
     }
 }
