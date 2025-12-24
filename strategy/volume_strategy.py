@@ -14,7 +14,7 @@ class VolumeSpikeStrategyConfig(StrategyConfig):
     
     execution_interval: int = 60  # 1 minute
     period: int = 20
-    multiplier: float = 1.5
+    multiplier: float = 2.0
     buy_amount: Decimal # Required for execution logic to know how much to buy
 
     class Config:
@@ -78,17 +78,25 @@ class VolumeSpikeStrategy(StrategyBase):
             self.is_updated = True
             
             if ratio >= self.config.multiplier:
-                logger.info(f"Volume Spike Detected! Ratio: {ratio:.2f} > {self.config.multiplier}")
+                # Add Price Rising Condition (Bullish Candle)
+                current_close = df.iloc[-1]['close']
+                current_open = df.iloc[-1]['open']
+                is_rising = current_close > current_open
                 
-                signal = Signal(
-                    type=SignalType.BUY,
-                    ticker=self.context.ticker,
-                    strategy_id=self.context.strategy_id,
-                    amount=self.config.buy_amount,
-                    reason=f"Volume Spike {ratio:.2f}x",
-                    data={"ratio": ratio, "current_volume": current_volume, "avg_volume": avg_volume}
-                )
-                return self.emit_signal(signal)
+                if is_rising:
+                    logger.info(f"Volume Spike Detected! Ratio: {ratio:.2f} > {self.config.multiplier} AND Price Rising")
+                    
+                    signal = Signal(
+                        type=SignalType.BUY,
+                        ticker=self.context.ticker,
+                        strategy_id=self.context.strategy_id,
+                        amount=self.config.buy_amount,
+                        reason=f"Volume Spike {ratio:.2f}x & Rising",
+                        data={"ratio": ratio, "current_volume": current_volume, "avg_volume": avg_volume}
+                    )
+                    return self.emit_signal(signal)
+                else:
+                     logger.info(f"Volume Spike {ratio:.2f}x ignored: Price not rising (Close {current_close} <= Open {current_open})")
             
         except Exception as e:
             logger.error(f"Error in VolumeSpikeStrategy: {e}")
