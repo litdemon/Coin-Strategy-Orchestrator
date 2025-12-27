@@ -35,7 +35,7 @@ class ScalpingStrategyConfig(StrategyConfig):
     rsi_oversold: int = 40
     bb_period: int = 20
     bb_std: int = 2
-    volume_surge_multiplier: float = 1.5
+    volume_surge_multiplier: float = 2.0
     
     # 호가창 설정
     min_buy_pressure: float = 0.52  # 최소 매수 압력 52%

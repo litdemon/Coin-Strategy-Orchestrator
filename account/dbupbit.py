@@ -356,6 +356,15 @@ class DBUpbit:
         else:
             # Sell -> Lock Coin (currency)
             lock_currency = ticker_obj.currency
+            
+            # Precision Tolerance Fix: If volume is slightly > balance, clamp it to balance
+            with self.lock:
+                asset = self.asset_repo.get(lock_currency)
+                balance = asset.balance if asset else Decimal("0")
+                if volume > balance and (volume - balance) < Decimal("0.0000001"):
+                    logger.warning(f"Adjusting sell volume for {market} from {volume} to {balance} to fix precision error")
+                    volume = balance
+            
             lock_amount = volume
             
         # Attempt Lock

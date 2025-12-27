@@ -14,7 +14,7 @@ class VolumeSpikeStrategyConfig(StrategyConfig):
     
     execution_interval: int = 60  # 1 minute
     period: int = 20
-    multiplier: float = 2.0
+    multiplier: float = 5.0
     buy_amount: Decimal # Required for execution logic to know how much to buy
 
     class Config:

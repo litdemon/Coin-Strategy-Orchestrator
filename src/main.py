@@ -165,7 +165,6 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 if self.strategy_manager:
                     # Strategy Manager iteration is now thread-safe (iterates copy)
                     self.strategy_manager.on_schedule()
-                    logger.info("Scheduler thread running")
             except Exception as e:
                 logger.error(f"Scheduler error: {e}")
                 logger.error(traceback.format_exc())
