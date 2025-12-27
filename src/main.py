@@ -309,6 +309,9 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
     # -- strategy events -------------------------
     def on_strategy_created(self, strategy: StrategyBase):
         self.dashboard.update({'strategy': strategy.summary()})
+        # Subscribe to WebSocket for real-time data (Orderbook, Ticker)
+        if self.upbit_websocket:
+            self.upbit_websocket.add_subscription([strategy.context.ticker])
 
     def on_strategy_signal(self, strategy: StrategyBase, signal: Signal):
         self.dashboard.update({'strategy': strategy.summary()})

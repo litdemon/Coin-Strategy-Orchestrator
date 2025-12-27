@@ -106,7 +106,12 @@ class UpbitWebSocket(UpbitWebSocketBase):
         self.request = req
 
     def add_subscription(self, codes: List[str]):
-        self.codes.extend(codes)
+        # Filter duplicates
+        new_codes = [c for c in codes if c not in self.codes]
+        if not new_codes:
+            return
+            
+        self.codes.extend(new_codes)
         self._update_request()
         if self.ws and self.ws.keep_running:
             self.ws.send(json.dumps(self.request))
