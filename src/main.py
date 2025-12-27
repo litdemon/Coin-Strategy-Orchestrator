@@ -38,6 +38,7 @@ from tools.counter import Counter
 from tools.currency_print import Won
 from account.manager import AccountDBManager, AccountUpbitManager
 from account.dbupbit import DBUpbit
+from account.exceptions import InsufficientBalanceException
 from src.dashboard import Dashboard
 from src.pocket_manager import Pocket, PocketManager, PocketObserver, PocketStateType
 from src.current_price import CurrentPrice
@@ -209,6 +210,9 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 is_stop = self.on_task(task)
             except Empty:
                 pass # Just continue loop
+            except InsufficientBalanceException as e:
+                logger.error(f"Insufficient balance: {e}")
+                self.dashboard.log(f"Insufficient balance: {e}")
             except Exception as e:
                 logger.error(f"Error processing task: {e}")
                 logging.error(traceback.format_exc())

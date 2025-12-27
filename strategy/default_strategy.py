@@ -55,7 +55,7 @@ class DefaultStrategy(StrategyBase):
                 strategy_id=self.context.strategy_id,
                 ticker=self.context.ticker,
                 reason=f"Stop Loss triggered at {current_price}",
-                data={"stop_price": self.sl_price}
+                data={"pocket_id": self.context.pocket_id, "stop_price": self.sl_price}
             ))
 
         # 2. Take Profit Check
@@ -64,7 +64,7 @@ class DefaultStrategy(StrategyBase):
             if profit_percent >= self.config.take_profit_percent:
                 self.tp_triggered = True
                 signal_type = SignalType.PARTIAL_CLOSE if self.config.take_profit_partial else SignalType.CLOSE_POCKET
-                data = {"price": current_price}
+                data = {"pocket_id": self.context.pocket_id, "price": current_price}
                 if self.config.take_profit_partial:
                     data["close_ratio"] = self.config.take_profit_ratio
 
