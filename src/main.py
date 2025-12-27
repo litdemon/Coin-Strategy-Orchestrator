@@ -5,6 +5,8 @@ import pyupbit
 import sys
 import json
 import traceback
+import threading
+import asyncio
 from decimal import Decimal
 
 class DecimalEncoder(json.JSONEncoder):
@@ -154,35 +156,92 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                  logger.debug(f"Strategy {strategy.context.strategy_id} is active (Independent)")
                  self.dashboard.update({'strategy': strategy.summary()})
 
+    def _run_scheduler_loop(self):
+        """Thread loop for checking strategy schedules."""
+        logger.info("Scheduler thread started")
+        while not self.stop_event.is_set():
+            try:
+                if self.strategy_manager:
+                    # Strategy Manager iteration is now thread-safe (iterates copy)
+                    self.strategy_manager.on_schedule()
+                    logger.info("Scheduler thread running")
+            except Exception as e:
+                logger.error(f"Scheduler error: {e}")
+                logger.error(traceback.format_exc())
+            
+            # Wait for 60 seconds or until stopped
+            if self.stop_event.wait(60):
+                break
+        logger.info("Scheduler thread stopped")
+
     def run(self):
         self.dashboard.start() # Start Dashboard
         self.upbit_websocket.start()
         if self.upbit_asset:
             self.upbit_asset.start()
+        
+        # Initialize Stop Event
+        self.stop_event = threading.Event()
+        
+        # Start Pipeline Thread
+        if hasattr(self, '_run_pipeline_loop'):
+            self.pipeline_thread = threading.Thread(target=self._run_pipeline_loop, daemon=True)
+            self.pipeline_thread.start()
+        
+        # Start Scheduler Thread
+        self.scheduler_thread = threading.Thread(target=self._run_scheduler_loop, daemon=True)
+        self.scheduler_thread.start()
 
         logger.info("Manager started")
+        
+        # Main Loop - Process Tasks
         is_stop = False
         while not is_stop:
             try:
-                try:
-                    task = self.task_queue.get(timeout=1)
-                    is_stop = self.on_task(task)
-                except Empty:
-                    # Run scheduled tasks
-                    if self.strategy_manager:
-                        self.strategy_manager.on_schedule()
+                # Block until task available (no timeout needed if we have separate scheduler)
+                # But keep timeout=1 to allow checking 'is_stop' or handling interrupts if needed?
+                # Actually, if we use stop_event, we can just block?
+                # 'task_queue.get()' blocks indefinitely.
+                # If we want to exit loop on stop(), we need to unblock get().
+                # Typically we put a sentinel 'EXIT' task or use timeout.
+                # Using timeout=1 is safer to check 'self.stop_event' periodically if logic changes.
+                task = self.task_queue.get(timeout=1)
+                is_stop = self.on_task(task)
+            except Empty:
+                pass # Just continue loop
             except Exception as e:
                 logger.error(f"Error processing task: {e}")
                 logging.error(traceback.format_exc())
-        logger.debug("Task queue is empty")
+                
+        logger.debug("Task queue loop finished")
+        
+        # If loop finished via is_stop (Task), make sure to stop everything
+        if is_stop:
+             self.stop()
 
     def stop(self):
+        logger.info("Stopping Manager...")
+        if hasattr(self, 'stop_event'):
+            self.stop_event.set()
+            
         self.upbit_websocket.stop()
         if self.upbit_asset:
             self.upbit_asset.stop()
         if self.messaging:
             self.messaging.disconnect()
         self.dashboard.stop()
+        
+        # Stop Pipeline (Async)
+        if hasattr(self, 'pipeline_manager') and hasattr(self, '_pipeline_loop'):
+            asyncio.run_coroutine_threadsafe(self.pipeline_manager.stop(), self._pipeline_loop)
+            if hasattr(self, 'pipeline_thread'):
+                self.pipeline_thread.join(timeout=1)
+        
+        # Stop Scheduler
+        if hasattr(self, 'scheduler_thread'):
+            self.scheduler_thread.join(timeout=1)
+            
+        logger.info("Manager stopped")
 
     # -- Pocket Events -------------------------
     def on_pocket_loaded(self, pocket: Pocket):

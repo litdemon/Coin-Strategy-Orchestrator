@@ -186,7 +186,7 @@ class StrategyManager:
         """Check time-based schedules for all strategies."""
         current_time = time.time()
         
-        for strategy_id, strategy in self.strategies.items():
+        for strategy_id, strategy in list(self.strategies.items()):
             should_run = False
             
             # 1. Interval Check
