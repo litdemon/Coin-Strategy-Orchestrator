@@ -22,7 +22,6 @@ from typing import List, Tuple, Any
 from dotenv import load_dotenv
 
 import pyupbit
-import pyupbit
 from queue import Queue, Empty
 
 # Import models
@@ -48,7 +47,11 @@ from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, Strate
 from strategy.buy_strategy import ScalpingStrategy, ScalpingStrategyConfig
 from strategy.default_strategy import DefaultStrategy, DefaultStrategyConfig
 from strategy.volume_strategy import VolumeSpikeStrategy, VolumeSpikeStrategyConfig
+from strategy.anomaly_strategy import AnomalyStrategy, AnomalyStrategyConfig
+from strategy.dl_anomaly_strategy import DeepAnomalyStrategy, DeepAnomalyStrategyConfig
 import uuid
+import project_mcp.mymcp as mymcp
+from project_mcp.tools.context import CommandExecutionContext
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +81,8 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         self.strategy_manager.register_strategy("default", DefaultStrategy)
         self.strategy_manager.register_strategy("scalping_strategy", ScalpingStrategy)
         self.strategy_manager.register_strategy("volume_spike_strategy", VolumeSpikeStrategy)
+        self.strategy_manager.register_strategy("anomaly_detection", AnomalyStrategy)
+        self.strategy_manager.register_strategy("dl_anomaly_detection", DeepAnomalyStrategy)
 
         self.strategy_manager.load_strategies()
 
@@ -382,7 +387,27 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 raise Exception(f"Unknown message type: {task.message['type']} from {task.cls}")
         elif isinstance(task.cls, MessagingClient):
             if task.message["type"] == "command":
-                self.process_command(task.message["topic"], task.message["data"])
+                try:
+                    topic = task.message["topic"]
+                    data = task.message["data"]
+                    # Build MCP execution context from Manager
+                    ctx = CommandExecutionContext(
+                        account_manager=self.account_manager,
+                        pocket_manager=self.pocket_manager,
+                        strategy_manager=self.strategy_manager,
+                        messaging=self.messaging,
+                        dashboard=self.dashboard,
+                        current_prices=self.current_prices,
+                        upbit_websocket=self.upbit_websocket,
+                        virtual=self.virtual,
+                    )
+                    # Execute command via MCP router
+                    result = mymcp.execute_command(topic, data, ctx)
+                    # Optional logging of result
+                    self.dashboard.log(f"MCP Command Result: {result}")
+                except Exception as e:
+                    logger.error(f"MCP command execution failed: {e}")
+                    logger.error(traceback.format_exc())
             else:
                 self.dashboard.log(f"Unknown msg type from Messaging: {task.message['type']}")
         elif isinstance(task.cls, StrategyBase):
@@ -759,7 +784,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                              # Default config for volume spike
                              config["execution_interval"] = 60
                              config["period"] = 20
-                             config["multiplier"] = 1.5
+                             config["multiplier"] = 2.0
 
                         try:
                             sid = self.strategy_manager.create_strategy(
