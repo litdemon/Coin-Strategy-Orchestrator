@@ -271,7 +271,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             entry_price=pocket.entry_price,
             trail_percent=Decimal("0.02"),
             stop_loss_percent=Decimal("0.02"),
-            take_profit_percent=Decimal("0.05")
+            take_profit_percent=Decimal("0.02")
         )
         
         strategy = DefaultStrategy(context=context, config=config)

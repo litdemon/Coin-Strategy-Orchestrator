@@ -88,4 +88,4 @@ def execute_command(topic: str, data: dict, context: CommandExecutionContext) ->
 
 if __name__ == "__main__":
     # Run the server using stdio
-    mcp.run(transport='stdio')
+    mcp.run(transport='streamable-http')

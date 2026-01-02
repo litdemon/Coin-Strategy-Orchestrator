@@ -92,6 +92,48 @@ def main():
         config["messaging"]["mqtt"]["client_id"] = f"strategy_manager_{int(time.time())}"
     
     manager.init(config=config)
+
+    # --- MCP Integration ---
+    try:
+        from project_mcp.mymcp import mcp, initialize_command_context
+        from project_mcp.tools.context import CommandExecutionContext
+        import threading
+        
+        # Initialize Context for MCP Tools
+        ctx = CommandExecutionContext(
+            account_manager=manager.account_manager,
+            pocket_manager=manager.pocket_manager,
+            strategy_manager=manager.strategy_manager,
+            messaging=manager.messaging,
+            dashboard=manager.dashboard,
+            current_prices=manager.current_prices,
+            upbit_websocket=manager.upbit_websocket,
+            virtual=manager.virtual
+        )
+        initialize_command_context(ctx)
+        
+        # Start MCP Server (SSE) in separate thread
+        def run_mcp_server():
+            logger.info("Starting MCP Server (SSE Mode)...")
+            # FastMCP uses uvicorn.run internally for SSE?
+            # mcp.run(transport='sse') might block.
+            try:
+                # Assuming 'sse' transport is supported by mcp library in use
+                mcp.run(transport='streamable-http') 
+            except Exception as e:
+                logger.error(f"MCP Server Failed: {e}")
+        
+        mcp_thread = threading.Thread(target=run_mcp_server, daemon=True)
+        mcp_thread.start()
+        logger.info("MCP Server Thread Started")
+        
+    except ImportError:
+        logger.warning("MCP modules not found. Skipping MCP server startup.")
+    except Exception as e:
+        logger.error(f"Failed to start MCP Server: {e}")
+        logger.error(traceback.format_exc())
+    # -----------------------
+
     try:
         # Run loop
         while True:
