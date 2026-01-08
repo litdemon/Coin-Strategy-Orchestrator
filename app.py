@@ -64,7 +64,6 @@ def load_config(file_path: str = "default.json") -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="Coin Strategy Bot")
-    parser.add_argument('--mode', choices=['virtual', 'real'], default='virtual', help='Running mode: virtual or real (upbit)')
     parser.add_argument('--config', default='default.json', help='Configuration file path')
     args = parser.parse_args()
 
@@ -72,14 +71,9 @@ def main():
     setup_logging(console=False)
     logger = logging.getLogger(__name__)
     
-    mode_str = args.mode.lower()
-    is_virtual = True
-    if mode_str in ['real']:
-        is_virtual = False
-    
-    logger.info(f"Starting Coin Strategy Bot in {mode_str.upper()} mode")
+    logger.info("Starting Coin Strategy Manager")
 
-    manager = Manager(virtual=is_virtual)
+    manager = Manager()
     
     # Load Configuration
     config = load_config(args.config)
@@ -108,7 +102,6 @@ def main():
             dashboard=manager.dashboard,
             current_prices=manager.current_prices,
             upbit_websocket=manager.upbit_websocket,
-            virtual=manager.virtual
         )
         initialize_command_context(ctx)
         

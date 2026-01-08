@@ -13,7 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.main import Manager
 from account.manager import AccountDBManager
-from account.dbupbit import DBUpbit
+from account.dbupbit import DBTradeManager
 from src.pocket_manager import PocketManager
 from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver
 
@@ -42,8 +42,8 @@ class TestTradingScenarios(unittest.TestCase):
 
 
         # -- 2. Hijack AccountDBManager to use TEST DB --
-        # DBUpbit with test DB
-        self.db_upbit = DBUpbit(db_path=self.test_db_path, callback=self.manager.on_ws_message)
+        # DBTradeManager with test DB
+        self.db_upbit = DBTradeManager(db_path=self.test_db_path, callback=self.manager.on_ws_message)
         self.db_upbit.init()
         
         # Manually initialize account_manager
@@ -100,8 +100,8 @@ class TestTradingScenarios(unittest.TestCase):
         # Verification
         self.assertIsNotNone(order)
         self.assertEqual(order['state'], "wait")
-        self.assertEqual(Decimal(str(order['locked'])), Decimal(str(amount_krw * 1.0005))) # Fee check? DBUpbit adds fee? 
-        # DBUpbit logic: lock_amount = price * volume * 1.0005 (approx)
+        self.assertEqual(Decimal(str(order['locked'])), Decimal(str(amount_krw * 1.0005))) # Fee check? DBTradeManager adds fee? 
+        # DBTradeManager logic: lock_amount = price * volume * 1.0005 (approx)
         
         # Check KRW Balance (Locked)
         balance = self.db_upbit.get_balance("KRW") # Available
@@ -112,7 +112,7 @@ class TestTradingScenarios(unittest.TestCase):
         """B-02 & B-03: 시장가 매수 / 매수 체결 및 포지션 생성"""
         print("\n[Test] B-02/B-03: Market Buy & Pocket Creation (Simulated via Limit Execution)")
         # Simulating Market Buy by using Limit Order with immediate execution
-        # (Since our DBUpbit.check_and_execute_orders handles both)
+        # (Since our DBTradeManager.check_and_execute_orders handles both)
         
         orderbook = [{"ask_price": 50000000.0, "bid_price": 49000000.0}]
         
@@ -178,7 +178,7 @@ class TestTradingScenarios(unittest.TestCase):
         # Try Cancel
         # account_manager.cancel_order returns the order object.
         # If state is 'done', it should return the done order without changing state to 'cancel'
-        # Or checking DBUpbit implementation:
+        # Or checking DBTradeManager implementation:
         # if order.state == "wait": cancel... else return order.
         
         result_order = self.manager.account_manager.cancel_order(order['uuid'])
@@ -328,13 +328,13 @@ class TestTradingSystem(unittest.TestCase):
         self.manager.upbit_websocket.codes = []
         
         # -- 2. Hijack AccountDBManager to use TEST DB --
-        # DBUpbit with test DB
-        self.db_upbit = DBUpbit(db_path=self.test_db_path, callback=self.manager.on_ws_message)
-        self.db_upbit.init()
+        # DBTradeManager with test DB
+        self.db_trade_manager = DBTradeManager(db_path=self.test_db_path, callback=self.manager.on_ws_message)
+        self.db_trade_manager.init()
         
         # Manually initialize account_manager
         self.manager.account_manager = AccountDBManager(callback=self.manager.on_ws_message)
-        self.manager.account_manager.manager = self.db_upbit
+        self.manager.account_manager.manager = self.db_trade_manager
         
         # Initialize PocketManager with test DB
         self.manager.pocket_manager = PocketManager(db_path=self.test_db_path)
@@ -675,7 +675,7 @@ class TestWebSocketSync(unittest.TestCase):
         self.patcher_main.start()
         
         # Setup DB with active order and asset
-        self.db = DBUpbit(db_path=self.test_db_path)
+        self.db = DBTradeManager(db_path=self.test_db_path)
         self.db.init()
         self.db.add_balance("KRW", Decimal("10000000"))
         self.db.create_order("KRW-XRP", "bid", "limit", Decimal("1000"), Decimal("100")) # Order only

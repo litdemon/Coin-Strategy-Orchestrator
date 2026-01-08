@@ -35,8 +35,7 @@ from tools.ticker import Ticker
 from tools.converter import Decimal2float
 from tools.counter import Counter
 from tools.currency_print import Won
-from account.manager import AccountDBManager, AccountUpbitManager
-from account.dbupbit import DBUpbit
+from account.manager import AccountDBManager
 from account.exceptions import InsufficientBalanceException
 from src.dashboard import Dashboard
 from src.pocket_manager import Pocket, PocketManager, PocketObserver, PocketStateType
@@ -68,11 +67,10 @@ class Task:
         self.message = message
 
 class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
-    def __init__(self, virtual: bool = False):
+    def __init__(self):
 
         self.task_queue = Queue()
         self.counter = Counter()
-        self.virtual = virtual
         self.orders = {}
         self.current_prices = CurrentPrice()
 
@@ -91,14 +89,8 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         self.pocket_manager.init()
                 
     def init_account(self, config: dict = None):
-        if self.virtual:
-            account_config = config.get("account", {}) if config else {}
-            self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config)
-            self.upbit_asset = None
-            
-        else:
-            self.account_manager = AccountUpbitManager(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY)
-            self.upbit_asset = UpbitWebSocketPrivate(access_key=UPBIT_ACCESS_KEY, secret_key=UPBIT_SECRET_KEY, observer=self)
+        self.account_manager = AccountDBManager(callback=self.on_ws_message, config=config)
+        self.upbit_asset = None
         self.account_manager.init()
 
         tickers = []
@@ -377,7 +369,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                     
             else:
                 raise Exception(f"Unknown message type: {task.message['type']} from {task.cls}")
-        elif isinstance(task.cls, UpbitWebSocketPrivate) or isinstance(task.cls, DBUpbit):
+        elif isinstance(task.cls, UpbitWebSocketPrivate) or isinstance(task.cls, DBTradeManager):
 
             if task.message["type"] == "myOrder":
                 self.on_my_order(task.cls, task.message)
@@ -399,7 +391,6 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                         dashboard=self.dashboard,
                         current_prices=self.current_prices,
                         upbit_websocket=self.upbit_websocket,
-                        virtual=self.virtual,
                     )
                     # Execute command via MCP router
                     result = mymcp.execute_command(topic, data, ctx)
@@ -592,7 +583,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 else:
                     self.account_manager.sell_limit_order(ticker.ticker, price, volume)
                 
-                if is_sell_all and self.virtual:
+                if is_sell_all:
                     # Clean up Virtual Account Artifacts
                     self.dashboard.log(f"Cleaning up artifacts for {ticker}...")
                     
@@ -980,7 +971,7 @@ if __name__ == "__main__":
     log_format = "%(asctime)s - %(levelname)s - %(message)s"
     logging.basicConfig(level=logging.INFO, filename="logs/coin-stratege.log", filemode="w", format=log_format, datefmt=time_format)
 
-    manager = Manager(virtual=True)
+    manager = Manager()
     
     # Default Configuration
     config = {

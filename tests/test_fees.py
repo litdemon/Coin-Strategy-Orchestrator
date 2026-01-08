@@ -7,7 +7,7 @@ import logging
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from account.dbupbit import DBUpbit
+from account.dbupbit import DBTradeManager
 from account.dtos import OrderDTO
 
 # Configure logging
@@ -25,7 +25,7 @@ class TestFees(unittest.TestCase):
                 "KRW": 0.0005 # 0.05%
             }
         }
-        self.db = DBUpbit(self.db_path, config=config)
+        self.db = DBTradeManager(self.db_path, config=config)
         self.db.init()
         
         # Initial Deposit

@@ -18,7 +18,6 @@ class CommandExecutionContext:
     dashboard: Any
     current_prices: Any
     upbit_websocket: Any
-    virtual: bool = False
 
 
 _COMMAND_CONTEXT: Optional[CommandExecutionContext] = None

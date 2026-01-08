@@ -19,7 +19,7 @@ from models.my_order import MyOrder
 
 logger = logging.getLogger(__name__)
 
-class DBUpbit:
+class DBTradeManager:
     def __init__(self, db_path: str = "account.db", callback: Callable[[Any, dict], None] = None, config: dict = None):
         self.db_path = db_path
         self.callback = callback or (lambda *args, **kwargs: None)

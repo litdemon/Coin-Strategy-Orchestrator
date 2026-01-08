@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 sys.path.append(os.getcwd())
 
 from account.manager import AccountDBManager
-from account.dbupbit import DBUpbit
+from account.dbupbit import DBTradeManager
 from account.dtos import AssetDTO, OrderDTO
 from account.exceptions import InsufficientBalanceException
 
@@ -17,18 +17,18 @@ class TestAccount(unittest.TestCase):
     def setUp(self):
         # Mock callback
         self.mock_callback = MagicMock()
-        # Initialize DBUpbit with memory DB for speed/isolation if possible, 
-        # but DBUpbit hardcodes file path or uses Repositories.
+        # Initialize DBTradeManager with memory DB for speed/isolation if possible, 
+        # but DBTradeManager hardcodes file path or uses Repositories.
         # Ideally we mock the repositories or use a temp file.
-        # For simplicity, we'll mock the repositories attached to DBUpbit.
+        # For simplicity, we'll mock the repositories attached to DBTradeManager.
         
-        self.db_upbit = DBUpbit(callback=self.mock_callback)
+        self.db_upbit = DBTradeManager(callback=self.mock_callback)
         self.db_upbit.asset_repo = MagicMock()
         self.db_upbit.order_repo = MagicMock()
         
         # AccountDBManager wrapper
         self.account = AccountDBManager(callback=self.mock_callback)
-        self.account.manager = self.db_upbit # Inject mocked DBUpbit
+        self.account.manager = self.db_upbit # Inject mocked DBTradeManager
         
     def test_get_balances_filtering(self):
         """Test that get_balances filters out zero-volume assets."""
@@ -83,7 +83,7 @@ class TestAccount(unittest.TestCase):
         
         # Verify asset_repo.save was called with updated balance/locked
         # save is called 2 times (once for locking, once for order?)
-        # DBUpbit logic: 
+        # DBTradeManager logic: 
         # 1. Lock funds -> repo.save(asset)
         # 2. Save order -> repo.save(order)
         

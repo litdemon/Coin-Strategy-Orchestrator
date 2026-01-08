@@ -1,25 +1,36 @@
 * # Coin Strategy Orchestrator
 
-  **Coin Strategy Orchestrator**는 Upbit 거래소를 기반으로 다양한 매매 전략(Trailing Stop, Scalping 등)을 실행하고 관리하는 자동 매매 시스템입니다. 예산 단위로 전략을 병렬 적용하며, 시스템 중단 시에도 전략 상태가 유지(Persistence)되도록 설계되었습니다.
+* Coin Strategy Orchestrator는 투자 자문이나 수익 보장을 제공하지 않으며,
+모든 전략 설정과 거래 실행에 대한 판단 및 책임은 사용자에게 있습니다.
+
+Coin Strategy Orchestrator는 Upbit 거래소의 시세 데이터를 기반으로 사용자가 정의한 거래 전략을 자동 실행·관리하도록 지원하는 거래 자동화 시스템입니다.
+
+본 시스템은 Trailing Stop, Scalping 등 다양한 전략을
+포켓(Pocket) 단위의 예산에 적용하여 병렬로 운용할 수 있도록 설계되었으며,
+시스템 중단 시에도 전략 상태를 로컬에 보존하여 복구가 가능하도록 구성되어 있습니다.
+
+Coin Strategy Orchestrator는 투자 자문이나 수익 보장을 제공하지 않으며,
+모든 전략 설정과 거래 실행에 대한 판단 및 책임은 사용자에게 있습니다.
 
   ## 📝 Project Overview
 
   Coin Strategy Orchestrator는 Upbit 시세를 기준으로 포켓(Pocket) 단위 자산을 관리하고, 지정된 예산·전략 조합을 지속 운용하도록 설계된 로컬 실행형 트레이딩 시스템입니다. 실시간 Price Feed를 수신해 전략이 요구하는 신호를 계산하고, 체결 내역과 상태를 로컬 DB에 보존하여 중단 이후에도 복구가 가능합니다.
 
-  시스템은 KRW 기반 Spot 자산을 지원하며, Virtual(시뮬레이션) 모드와 Real(Upbit 실계좌) 모드가 동일한 전략 파이프라인을 공유합니다. Price Feed → Pocket Manager → Strategy Engine → Account Manager → Messaging → Dashboard/Data Export 단계로 이어지는 파이프라인을 통해 시세·전략·거래·모니터링이 하나의 루프로 묶입니다. 이를 통해 전략 검증부터 실계좌 운용까지 일관된 경험을 제공합니다.
+  시스템은 KRW 기반 Spot 자산(가상 자산)을 지원하며 실제 거래와 최대한 동일한 전략 파이프라인을 공유 할 수 있도록 설계하였습니다. Price Feed → Pocket Manager → Strategy Engine → Account Manager → Messaging → Dashboard/Data Export 단계로 이어지는 파이프라인을 통해 시세·전략·거래·모니터링이 하나의 루프로 묶입니다. 이를 통해 전략 검증부터 실계좌 운용까지 일관된 경험을 제공합니다.
 
   ### Key Features
   *   **Strategy Orchestration**: 여러 코인에 대해 다수의 전략을 동시에 병렬 실행
   *   **Strategy Persistence**: 전략 상태(진입가, 목표가, 현재 상태 등)를 로컬 DB에 저장하여 재시작 시 자동 복구
   *   **Dual Mode**:
       *   **Virtual Mode**: 가상 자산으로 전략 테스트 (수수료 및 체결 시뮬레이션 포함)
-      *   **Real Mode**: Upbit API를 연동한 실전 매매
   *   **Strategy Types**:
-      *   Default Strategy (기본 매매)
+      *   Default Strategy (기본 매매 : Trailing Stop, Stop Loss, Take Profit)
       *   Scalping Strategy (스캘핑)
+      *   Anomaly Detection Strategy (이상치 탐지)
       *   (확장 가능)
   *   **Dashboard**: 실시간 상태 로그 및 자산/전략 현황 모니터링
   *   **Messaging**: MQTT를 통한 외부 명령 수신 및 상태 제어
+  *   **MCP server**: AI가 도구로 사용할 수 있도록 MCP 프로토콜을 통한 명령 수신 및 상태 제어
 
   ## 🧱 Architecture & Data Flow
 

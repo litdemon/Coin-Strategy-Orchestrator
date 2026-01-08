@@ -7,7 +7,7 @@ from typing import List, Optional, Any, Callable
 import logging
 
 # New architecture imports
-from account.dbupbit import DBUpbit
+from account.dbupbit import DBTradeManager
 from account.dtos import OrderDTO
 from account.exceptions import InsufficientBalanceException
 from models.orderInfo import OrderInfo # Keep for compatibility if needed, or replace usages. 
@@ -71,74 +71,11 @@ class AccountBase(ABC):
     def get_orders(self) -> List[dict]:
         pass
 
-class AccountUpbitManager(AccountBase):
-
-    def __init__(self, access_key, secret_key):
-        super().__init__()
-
-    def init(self):
-        self.upbit = pyupbit.Upbit(access_key, secret_key)
-
-    def get_balance(self, ticker: str) -> Decimal:
-        return self.upbit.get_balance(ticker)
-
-    def get_asset_balance(self, ticker: str) -> dict:
-        """Get full asset balance info including avg_buy_price from Upbit"""
-        # pyupbit.get_balances() returns list of dicts. We find the matching ticker.
-        # This is inefficient if we call it often, but acceptable for order completion events.
-        balances = self.upbit.get_balances()
-        target_currency = Ticker(ticker).currency
-        for b in balances:
-            if b['currency'] == target_currency:
-                return b
-        # If not found, return empty/zero asset
-        return {
-            'currency': target_currency,
-            'balance': 0.0,
-            'avg_buy_price': 0.0,
-            'locked': 0.0,
-            'unit_currency': 'KRW'
-        }
-    
-    def get_balances(self) -> List[dict]:
-        return self.upbit.get_balances()
-
-    def get_orders(self) -> List[dict]:
-        return self.upbit.get_order()
-    
-    def add_balance(self, ticker: str, amount: Any, avg_buy_price: Decimal = Decimal(0)):
-        return Decimal(0)
-    
-    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> Any:
-        return self.upbit.buy_limit_order(ticker, float(price), float(volume))
-    
-    def buy_market_order(self, ticker: str, volume: Decimal) -> Any:
-        return self.upbit.buy_market_order(ticker, float(volume))
-    
-    def sell_market_order(self, ticker: str, volume: Decimal) -> Any:
-        return self.upbit.sell_market_order(ticker, float(volume))
-    
-    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> Any:
-        return self.upbit.sell_limit_order(ticker, float(price), float(volume))
-    
-    def get_order(self, ticker: str, state: str = "wait") -> List[Any]:
-        return self.upbit.get_order(ticker, state)
-    
-    def cancel_order(self, uuid: str) -> Any:
-        return self.upbit.cancel_order(uuid)
-    
-    def on_order_complete(self, order: Any):
-        pass
-    
-    def check_order(self, market: str, orderbook_units: List[dict]) -> Any:
-        pass    
-
-
 class AccountDBManager(AccountBase):
     def __init__(self, callback: Callable[[Any, dict], None], config: dict = None):
         super().__init__()
         self.config = config
-        self.manager = DBUpbit(DB_PATH, callback, config)
+        self.manager = DBTradeManager(DB_PATH, callback, config)
     
     def init(self):
         self.manager.init()
@@ -157,7 +94,7 @@ class AccountDBManager(AccountBase):
 
     def get_asset_balance(self, ticker: str) -> dict:
          """Get full asset balance info including avg_buy_price from DB"""
-         # AccountDBManager -> DBUpbit -> AssetRepo
+         # AccountDBManager -> DBTradeManager -> AssetRepo
          asset_dto = self.manager.asset_repo.get(Ticker(ticker).currency)
          if asset_dto:
              return asset_dto.model_dump()
