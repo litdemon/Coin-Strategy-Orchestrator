@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 
 import pyupbit
 from queue import Queue, Empty
+from account.dbupbit import DBTradeManager
 
 # Import models
 # Messaging
