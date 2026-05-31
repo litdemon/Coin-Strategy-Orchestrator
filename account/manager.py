@@ -10,16 +10,9 @@ import logging
 from account.dbupbit import DBTradeManager
 from account.dtos import OrderDTO
 from account.exceptions import InsufficientBalanceException
-from models.orderInfo import OrderInfo # Keep for compatibility if needed, or replace usages. 
-# But AccountBase signatures use OrderInfo. I should probably update AccountBase or ignore type hint mismatch for now.
-# Or better, alias OrderDTO as OrderInfo if fields match, or change AccountBase.
-
 from tools.ticker import Ticker
 
 logger = logging.getLogger(__name__)
-
-# Maintain DB_PATH global for compatibility/patching
-DB_PATH = "account.db"
 
 class AccountBase(ABC):
     def __init__(self):
@@ -72,10 +65,10 @@ class AccountBase(ABC):
         pass
 
 class AccountDBManager(AccountBase):
-    def __init__(self, callback: Callable[[Any, dict], None], config: dict = None):
+    def __init__(self, callback: Callable[[Any, dict], None], config: dict = None, db_path: str = "account.db"):
         super().__init__()
         self.config = config
-        self.manager = DBTradeManager(DB_PATH, callback, config)
+        self.manager = DBTradeManager(db_path, callback, config)
     
     def init(self):
         self.manager.init()
@@ -173,36 +166,5 @@ class AccountDBManager(AccountBase):
     def check_order(self, market: str, orderbook_units: List[dict]) -> Optional[OrderDTO]:
         return self.manager.check_and_execute_orders(market, orderbook_units)
     
-    # Expose balance object for backward compatibility if tests access .balance.assets
-    # But new architecture doesn't have Balance class.
-    # verify/test_account.py accesses acc.balance.assets.
-    # I should probably update the test or provide a property.
-    @property
-    def balance(self):
-        # Mocking compatibility object
-        class BalanceCompat:
-            def __init__(self, manager):
-                self.manager = manager
-            @property
-            def assets(self):
-                # Return dict of {currency: AssetDTO}
-                # But AssetDTO is not mutable like old Asset.
-                # Tests might assume mutability or direct access.
-                # This is tricky. I'll update the test instead.
-                all_assets = self.manager.asset_repo.get_all()
-                return {asset.currency: asset for asset in all_assets}
-            
-            def add_balance(self, ticker, amount, avg_buy_price=0):
-                 return self.manager.add_balance(ticker, amount, avg_buy_price)
-
-        return BalanceCompat(self.manager)
-    
-    @property
-    def orders(self):
-        # account.orders was a dict {uuid: OrderDB}.
-        # Tests access acc.orders[uuid].
-        # I should provide a property that builds this dict on fly.
-        all_orders = self.manager.get_open_orders()
-        return {order.uuid: order for order in all_orders}
 
 

@@ -41,7 +41,7 @@ from account.exceptions import InsufficientBalanceException
 from src.dashboard import Dashboard
 from src.pocket_manager import Pocket, PocketManager, PocketObserver, PocketStateType
 from src.current_price import CurrentPrice
-from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver, UpbitWebSocketPrivate
+from upbit.upbit_websocket import UpbitWebSocket, WebsocketObserver
 from strategy.manager import StrategyManager, StrategyObserver, StrategyBase
 from strategy.models import StrategyContext, StrategyConfig, StrategyDTO, StrategyStatus, Signal, SignalType, StrategyType
 from strategy.buy_strategy import ScalpingStrategy, ScalpingStrategyConfig
@@ -90,8 +90,8 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         self.pocket_manager.init()
                 
     def init_account(self, config: dict = None):
-        self.account_manager = AccountDBManager(callback=self.on_ws_message, config=config)
-        self.upbit_asset = None
+        account_config = config.get("account", {}) if config else {}
+        self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config, db_path=DB_PATH)
         self.account_manager.init()
 
         tickers = []
@@ -175,8 +175,6 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
     def run(self):
         self.dashboard.start() # Start Dashboard
         self.upbit_websocket.start()
-        if self.upbit_asset:
-            self.upbit_asset.start()
         
         # Initialize Stop Event
         self.stop_event = threading.Event()
@@ -226,8 +224,6 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             self.stop_event.set()
             
         self.upbit_websocket.stop()
-        if self.upbit_asset:
-            self.upbit_asset.stop()
         if self.messaging:
             self.messaging.disconnect()
         self.dashboard.stop()
@@ -370,7 +366,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                     
             else:
                 raise Exception(f"Unknown message type: {task.message['type']} from {task.cls}")
-        elif isinstance(task.cls, UpbitWebSocketPrivate) or isinstance(task.cls, DBTradeManager):
+        elif isinstance(task.cls, DBTradeManager):
 
             if task.message["type"] == "myOrder":
                 self.on_my_order(task.cls, task.message)
@@ -585,7 +581,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                     self.account_manager.sell_limit_order(ticker.ticker, price, volume)
                 
                 if is_sell_all:
-                    # Clean up Virtual Account Artifacts
+                    # Clean up position artifacts after full sell
                     self.dashboard.log(f"Cleaning up artifacts for {ticker}...")
                     
                     # 1. Archive Pockets

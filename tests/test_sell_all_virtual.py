@@ -14,7 +14,6 @@ from src.main import Manager
 from account.manager import AccountDBManager
 from strategy.models import StrategyStatus
 from tools.ticker import Ticker
-import account.manager
 import src.main
 
 # Patch MessagingFactory global import for referencing in setUp/tearDown
@@ -30,11 +29,9 @@ class TestSellAllVirtual(unittest.TestCase):
         if os.path.exists(TEST_DB):
             os.remove(TEST_DB)
             
-        # Patch DB Paths globally for the modules
-        account.manager.DB_PATH = TEST_DB
+        # Redirect DB path to test DB
         src.main.DB_PATH = TEST_DB
-        
-        # Initialize Manager in Virtual Mode
+
         config = {
             "messaging": {
                 "broker_type": "mqtt",
@@ -65,8 +62,7 @@ class TestSellAllVirtual(unittest.TestCase):
         })()
         MessagingFactory.create_client = lambda config: self.mock_messaging
         
-        # Init Manager
-        self.manager = Manager(virtual=True)
+        self.manager = Manager()
         self.manager.init(config=config)
         
     def tearDown(self):

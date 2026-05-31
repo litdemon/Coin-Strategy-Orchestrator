@@ -321,7 +321,7 @@ class TestTradingSystem(unittest.TestCase):
             os.remove(self.test_db_path)
             
         # -- 1. Initialize Manager --
-        self.manager = Manager(virtual=True)
+        self.manager = Manager()
         self.manager.dashboard = MagicMock()
         self.manager.mqtt_client = MagicMock()
         self.manager.upbit_websocket = MagicMock()
@@ -566,15 +566,10 @@ class TestInitialBalance(unittest.TestCase):
         if os.path.exists(self.test_db):
             os.remove(self.test_db)
             
-        # Patch init 
-        self.patcher_manager_db = patch('account.manager.DB_PATH', self.test_db)
         self.patcher_main_db = patch('src.main.DB_PATH', self.test_db)
-        
-        self.patcher_manager_db.start()
         self.patcher_main_db.start()
 
     def tearDown(self):
-        self.patcher_manager_db.stop()
         self.patcher_main_db.stop()
         gc.collect()
         
@@ -590,25 +585,25 @@ class TestInitialBalance(unittest.TestCase):
             }
         }
         
-        manager = Manager(virtual=True)
+        manager = Manager()
         # Mock dashboard to avoid errors
         manager.dashboard = MagicMock()
         manager.upbit_websocket = MagicMock()
         manager.messaging = MagicMock()
-        
+
         # Init with config
         manager.init(config=config)
-        
+
         # Check Balance
         balance = manager.account_manager.get_balance("KRW")
         print(f"Verified Balance: {balance}")
         self.assertEqual(balance, Decimal("50000000"))
-        
+
         # Re-init (restart) - Should not add funds again
         # IMPORTANT: We need a new manager but SAME database file.
-        # setUp patches global DB_PATH, so manager2 will use same file.
-        
-        manager2 = Manager(virtual=True)
+        # setUp patches src.main.DB_PATH, so manager2 will use same file.
+
+        manager2 = Manager()
         manager2.dashboard = MagicMock()
         manager2.upbit_websocket = MagicMock()
         manager2.messaging = MagicMock()
@@ -667,11 +662,7 @@ class TestWebSocketSync(unittest.TestCase):
         if os.path.exists(self.test_db_path):
             os.remove(self.test_db_path)
 
-        # Patch DB path globally
-        self.patcher_manager = patch('account.manager.DB_PATH', self.test_db_path)
         self.patcher_main = patch('src.main.DB_PATH', self.test_db_path)
-        
-        self.patcher_manager.start()
         self.patcher_main.start()
         
         # Setup DB with active order and asset
@@ -682,7 +673,6 @@ class TestWebSocketSync(unittest.TestCase):
         self.db.add_balance("KRW-BTC", Decimal("1"), Decimal("50000000")) # Asset
 
     def tearDown(self):
-        self.patcher_manager.stop()
         self.patcher_main.stop()
         self.db = None
         gc.collect()
@@ -692,10 +682,10 @@ class TestWebSocketSync(unittest.TestCase):
 
     def test_startup_subscription(self):
         print("\n[Test] WebSocket Startup Subscription Sync")
-        manager = Manager(virtual=True)
+        manager = Manager()
         manager.dashboard = MagicMock()
         manager.messaging = MagicMock()
-        
+
         manager.init()
         
         codes = manager.upbit_websocket.codes

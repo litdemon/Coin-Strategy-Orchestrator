@@ -25,8 +25,7 @@ class TestMaruStrategy(unittest.TestCase):
         self.mock_ws = self.mock_ws_cls.return_value
         self.mock_ws.codes = [] # Mock codes list
         
-        # Init Manager in virtual mode with minimal config
-        self.manager = Manager(virtual=True)
+        self.manager = Manager()
         self.manager.messaging = self.mock_messaging
         self.manager.strategy_manager = self.mock_strategy_manager
         self.manager.upbit_websocket = self.mock_ws

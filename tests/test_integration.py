@@ -12,8 +12,7 @@ from upbit.upbit_websocket import UpbitWebSocket
 
 class TestManagerIntegration(unittest.TestCase):
     def setUp(self):
-        # Initialize Manager in virtual mode
-        self.manager = Manager(virtual=True)
+        self.manager = Manager()
         # Mock dependencies
         self.manager.dashboard = MagicMock()
         self.manager.account_manager = MagicMock()

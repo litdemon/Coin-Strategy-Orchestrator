@@ -489,7 +489,9 @@ class DBTradeManager:
                 asset = self.asset_repo.get(currency)
                 if asset:
                     new_locked = asset.locked - completed_order.locked
-                    
+                    if new_locked < Decimal("0"):
+                        new_locked = Decimal("0")
+
                     avg_buy_price = asset.avg_buy_price
                     if asset.balance == 0 and new_locked == 0:
                         avg_buy_price = Decimal("0")

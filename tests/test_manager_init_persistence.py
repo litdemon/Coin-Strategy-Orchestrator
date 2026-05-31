@@ -22,7 +22,7 @@ class TestManagerInitPersistence(unittest.TestCase):
     @patch('src.main.Dashboard')
     def test_init_updates_dashboard_for_all_strategies(self, MockDashboard, MockPocketManager, MockStrategyManager, MockAccount, MockWS, MockMessaging):
         # Setup Mocks
-        manager = Manager(virtual=True)
+        manager = Manager()
         manager.dashboard = MockDashboard.return_value
         
         # Mock Strategy Manager strategies

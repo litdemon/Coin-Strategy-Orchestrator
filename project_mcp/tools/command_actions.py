@@ -180,7 +180,7 @@ class SellCommandTool(CommandActionTool):
         else:
             context.account_manager.sell_limit_order(ticker.ticker, price, volume)
 
-        if is_sell_all and context.virtual:
+        if is_sell_all:
             pockets = context.pocket_manager.get_pockets(ticker.ticker)
             for pocket in pockets:
                 context.pocket_manager.archive_pocket(pocket.id)
