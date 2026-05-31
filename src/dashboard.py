@@ -12,6 +12,7 @@ from tools.ticker import Ticker
 from tools.currency_print import WonColor, RateColor, Won, WonR, WonG, WonY, WonB
 from decimal import Decimal
 import traceback
+from src.dashboard_state import DashboardStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -353,7 +354,10 @@ class Dashboard:
         self.strategy_spinner = Spinner()
         self.order_spinner = Spinner()
         self.total_balance = Decimal("0")
-        
+
+        self._state_store = DashboardStateStore()
+        self._state_store.subscribe(self._tui_on_event)
+
 
     def start(self):
         self.running = True
@@ -380,43 +384,45 @@ class Dashboard:
     # -- Internal Processing --
     def _process_item(self, data: Dict[str, Any]):
         self.spinner.next()
+        mtype = data.get('type')
+        payload = data.get('payload')
+        if mtype not in VALID_EVENT_TYPES or payload is None:
+            self.log(f"Unknown or malformed event: {data}")
+            return
+        self._state_store.apply_event(mtype, payload)
+
+    def _tui_on_event(self, event_type: str, payload: dict) -> None:
+        """TUI subscriber: updates Widget tree when StateStore notifies."""
         with self.lock:
-            mtype = data.get('type')
-            payload = data.get('payload')
-
-            if mtype not in VALID_EVENT_TYPES or payload is None:
-                self.log(f"Unknown or malformed event: {data}")
-                return
-
             target_id = None
             widget_type = None
 
-            if mtype == 'ticker.update':
+            if event_type == 'ticker.update':
                 target_id = Ticker(payload.get('code')).ticker
                 widget_type = 'ticker'
-            elif mtype == 'log.append':
+            elif event_type == 'log.append':
                 self.log_widget.update(payload)
                 return
-            elif mtype == 'asset.update':
+            elif event_type == 'asset.update':
                 target_id = Ticker(payload.get('currency')).ticker
                 widget_type = 'ticker'
-            elif mtype == 'orderbook.update':
+            elif event_type == 'orderbook.update':
                 self.orderbook_spinner.next()
                 target_id = Ticker(payload.get('code')).ticker
                 widget_type = 'ticker'
-            elif mtype == 'pocket.update':
+            elif event_type == 'pocket.update':
                 self.pocket_spinner.next()
                 target_id = payload.get('id')
                 widget_type = 'pocket'
-            elif mtype == 'strategy.update':
+            elif event_type == 'strategy.update':
                 self.strategy_spinner.next()
                 target_id = payload.get('strategy_id')
                 widget_type = 'strategy'
-            elif mtype == 'order.update':
+            elif event_type == 'order.update':
                 self.order_spinner.next()
                 target_id = payload.get('uuid')
                 widget_type = 'order'
-            elif mtype == 'entity.remove':
+            elif event_type == 'entity.remove':
                 target_id = payload.get('id')
                 if target_id and target_id in self.registry:
                     self.log(f"Removing widget: {target_id}")
@@ -429,11 +435,10 @@ class Dashboard:
                 return
 
             if not target_id:
-                self.log(f"Dashboard: Could not identify target ID for data: {data}")
                 return
 
             if target_id not in self.registry:
-                if mtype in ('ticker.update', 'orderbook.update'):
+                if event_type in ('ticker.update', 'orderbook.update'):
                     return
                 self._create_widget(target_id, widget_type, payload)
 
@@ -587,31 +592,28 @@ class Dashboard:
         return total
 
     def _render(self):
-        # Move cursor to top-left
+        # TUI consumes StateStore.snapshot() for logs
+        snap = self._state_store.snapshot()
+        recent_logs = snap['logs'][-self.log_widget.max_logs:]
+        self.log_widget.logs = [l + " " * max(0, MAX_WIDTH - len(l)) for l in recent_logs]
+
         sys.stdout.write("\033[H")
-        
+
         output = []
         output.append("=" * MAX_WIDTH)
         info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.pocket_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
         output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner()} {info}")
         output.append(f"    Total Asset: 🏦 {WonY(self._total_balance())}")
         output.append("=" * MAX_WIDTH)
-        
+
         with self.lock:
-            # Render TickerWidgets (Roots)
-            # Filter registry for TickerWidgets
             tickers = sorted([w for w in self.registry.values() if isinstance(w, TickerWidget)], key=lambda x: x.id)
             for widget in tickers:
-                line = widget.render()
-                output.append(f"{line}")
+                output.append(widget.render())
 
-
-
-        # Logs area
         output.append("")
         output.append("[Recent Logs]")
-        output.append(self.log_widget.render()) # Already returns list of strings
-            
-        # Fill rest of screen
+        output.append(self.log_widget.render())
+
         sys.stdout.write("\n".join([line + "\033[K" for line in output]) + "\033[J")
         sys.stdout.flush()
