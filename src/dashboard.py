@@ -6,9 +6,8 @@ import os
 import sys
 from typing import Dict, Any, List, Optional
 from abc import ABC, abstractmethod
-import logging  
+import logging
 from tools.candle import Candle
-import pyupbit
 from tools.ticker import Ticker
 from tools.currency_print import WonColor, RateColor, Won, WonR, WonG, WonY, WonB
 from decimal import Decimal
@@ -17,6 +16,11 @@ import traceback
 logger = logging.getLogger(__name__)
 
 MAX_WIDTH = 120
+
+VALID_EVENT_TYPES = frozenset({
+    'log.append', 'ticker.update', 'asset.update', 'orderbook.update',
+    'pocket.update', 'strategy.update', 'order.update', 'entity.remove',
+})
 
 
 # widget의 계층 구조
@@ -272,12 +276,6 @@ class TickerWidget(Widget):
         # Candle initialization (could be async or deferred)
         self.candle : Candle = Candle(self.coin.ticker, Decimal("0"))
         self.spinner = Spinner()
-        try:
-             ohlcv = pyupbit.get_ohlcv(self.coin.ticker, interval="day")
-             if ohlcv is not None and not ohlcv.empty:
-                 self.candle.reset(ohlcv)
-        except:
-             pass
 
     def update(self, data: Dict[str, Any]):
         # Check if balance update or ticker update
@@ -376,124 +374,93 @@ class Dashboard:
         self.queue.put(data)
 
     def log(self, message: str):
-        self.update({'log': {'message': message}})
+        self.update({'type': 'log.append', 'payload': {'message': message}})
         logger.info(message)
         
     # -- Internal Processing --
     def _process_item(self, data: Dict[str, Any]):
         self.spinner.next()
         with self.lock:
-            # 1. Identify Target Widget ID
-            target_id = None
-            widget_type = None
-            payload = None
-            
-            try:
-                mtype = next(iter(data))
-                payload = data[mtype]
-            except StopIteration:
-                self.log(f"Received empty data: {data}")
+            mtype = data.get('type')
+            payload = data.get('payload')
+
+            if mtype not in VALID_EVENT_TYPES or payload is None:
+                self.log(f"Unknown or malformed event: {data}")
                 return
 
-            if 'ticker' in mtype:
+            target_id = None
+            widget_type = None
+
+            if mtype == 'ticker.update':
                 target_id = Ticker(payload.get('code')).ticker
                 widget_type = 'ticker'
-            elif 'log' in mtype:
+            elif mtype == 'log.append':
                 self.log_widget.update(payload)
                 return
-            elif 'asset' in mtype:
+            elif mtype == 'asset.update':
                 target_id = Ticker(payload.get('currency')).ticker
                 widget_type = 'ticker'
-            elif 'orderbook' in mtype:
+            elif mtype == 'orderbook.update':
                 self.orderbook_spinner.next()
                 target_id = Ticker(payload.get('code')).ticker
                 widget_type = 'ticker'
-            elif 'pocket' in mtype:
+            elif mtype == 'pocket.update':
                 self.pocket_spinner.next()
                 target_id = payload.get('id')
                 widget_type = 'pocket'
-            elif 'strategy' in mtype:
+            elif mtype == 'strategy.update':
                 self.strategy_spinner.next()
                 target_id = payload.get('strategy_id')
                 widget_type = 'strategy'
-            elif 'order' in mtype:
+            elif mtype == 'order.update':
                 self.order_spinner.next()
                 target_id = payload.get('uuid')
                 widget_type = 'order'
-            elif 'remove' in mtype:
+            elif mtype == 'entity.remove':
                 target_id = payload.get('id')
                 if target_id and target_id in self.registry:
                     self.log(f"Removing widget: {target_id}")
-                    # If it has a parent, remove from parent's children
                     widget = self.registry[target_id]
                     if widget.parent and hasattr(widget.parent, 'children'):
-                         # Assuming parent has children dict or list
-                         # TickerWidget has self.children = {} (OrderedDict or similar)
-                         if target_id in widget.parent.children:
-                             del widget.parent.children[target_id]
-                             
-                             # Check if parent (Ticker) needs to be removed now that child is gone?
-                             self._check_and_remove_ticker(widget.parent.id)
-
+                        if target_id in widget.parent.children:
+                            del widget.parent.children[target_id]
+                            self._check_and_remove_ticker(widget.parent.id)
                     del self.registry[target_id]
-                return
-            else:
-                self.log(f"Unknown message type: {data}")
                 return
 
             if not target_id:
-                # Only log if it's not a log message itself (recursion risk?)
-                # But we handled log above.
-                self.log(f"Dashboard: Could not identify target ID for data: {data.keys()}")
+                self.log(f"Dashboard: Could not identify target ID for data: {data}")
                 return
 
-            # 2. Find or Create Widget
             if target_id not in self.registry:
-                if 'ticker' in mtype or 'orderbook' in mtype:
+                if mtype in ('ticker.update', 'orderbook.update'):
                     return
-
-                # Create if missing (for asset, order, pocket, strategy)
                 self._create_widget(target_id, widget_type, payload)
-            
-            # 3. Update Widget
+
             if target_id in self.registry:
                 widget = self.registry[target_id]
                 widget.update(payload)
-                
-                # Check for Order Completion/Cancellation
+
                 if widget_type == 'order':
                     if widget.state in ['done', 'cancel']:
                         self.log(f"Removing completed order: id:{target_id:8} ({widget.state})")
-                        # Remove from parent
                         if widget.parent and hasattr(widget.parent, 'children'):
                             if target_id in widget.parent.children:
                                 del widget.parent.children[target_id]
-                        
-                        # Remove from registry
                         del self.registry[target_id]
-                        
-                        # Check cleanup for parent
                         if widget.parent:
                             self._check_and_remove_ticker(widget.parent.id)
-                        return # Done with this item
+                        return
 
-                # 4. Cleanup Check (if Asset/Pocket update)
-                # If TickerWidget is empty (Balance 0, Locked 0, No Children), remove it.
-                if widget_type in ['asset', 'ticker', 'pocket']: # 'asset' handled as 'ticker' type but payload is from 'asset' msg
-                    # If it was an asset update, target_id is Ticker.
-                    # If it was a pocket update, target_id might be Pocket ID? 
-                    # Wait, if pocket update, target_id is pocket ID.
-                    # We need to find the parent ticker to check cleanup.
-                    
+                if widget_type in ['asset', 'ticker', 'pocket']:
                     cleanup_target_id = None
                     if target_id in self.registry and isinstance(self.registry[target_id], TickerWidget):
                         cleanup_target_id = target_id
                     elif target_id in self.registry and isinstance(self.registry[target_id], PocketWidget):
-                        # Pocket widget, check parent
                         parent = self.registry[target_id].parent
                         if parent and isinstance(parent, TickerWidget):
-                             cleanup_target_id = parent.id
-                    
+                            cleanup_target_id = parent.id
+
                     if cleanup_target_id:
                         self._check_and_remove_ticker(cleanup_target_id)
                 

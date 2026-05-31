@@ -10,7 +10,8 @@ class TestDashboardBuyStrategy(unittest.TestCase):
         # 1. Simulate Strategy Creation Logic (via update)
         # Payload mimicking what comes from StrategyManager/Observer
         strategy_data = {
-            'strategy': {
+            'type': 'strategy.update',
+            'payload': {
                 'strategy_id': 'strat-123',
                 'name': 'scalping',
                 'type': 'buy',

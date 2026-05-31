@@ -66,8 +66,8 @@ class TestManagerInitPersistence(unittest.TestCase):
         for call in manager.dashboard.update.call_args_list:
             args, _ = call
             data = args[0]
-            if 'strategy' in data:
-                strategy_updates.append(data['strategy']['strategy_id'])
+            if data.get('type') == 'strategy.update':
+                strategy_updates.append(data['payload']['strategy_id'])
         
         self.assertIn("linked", strategy_updates)
         self.assertIn("independent", strategy_updates)

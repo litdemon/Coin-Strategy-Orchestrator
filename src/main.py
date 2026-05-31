@@ -149,11 +149,11 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             if strategy.context.pocket_id:
                 if strategy.context.pocket_id in self.pocket_manager.pockets:
                      logger.debug(f"Strategy {strategy.context.strategy_id} is active (Pocket {strategy.context.pocket_id})")
-                     self.dashboard.update({'strategy': strategy.summary()})
+                     self.dashboard.update({'type': 'strategy.update', 'payload': strategy.summary()})
             else:
                  # Independent Strategy (e.g. Buy Strategy)
                  logger.debug(f"Strategy {strategy.context.strategy_id} is active (Independent)")
-                 self.dashboard.update({'strategy': strategy.summary()})
+                 self.dashboard.update({'type': 'strategy.update', 'payload': strategy.summary()})
 
     def _run_scheduler_loop(self):
         """Thread loop for checking strategy schedules."""
@@ -243,11 +243,11 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
     # -- Pocket Events -------------------------
     def on_pocket_loaded(self, pocket: Pocket):
         self.dashboard.log(f"Loaded Pocket: {pocket.ticker:<10} {pocket.entry_price:<10,.0f} {pocket.volume * pocket.entry_price:,.0f}")
-        self.dashboard.update({'pocket': pocket.model_dump()})
+        self.dashboard.update({'type': 'pocket.update', 'payload': pocket.model_dump()})
     
     def on_pocket_created(self, pocket: Pocket):
         self.dashboard.log(f"Created Pocket: {pocket.ticker:<10} {pocket.entry_price:<10,.0f} {pocket.volume * pocket.entry_price:,.0f}")
-        self.dashboard.update({'pocket': pocket.model_dump()})
+        self.dashboard.update({'type': 'pocket.update', 'payload': pocket.model_dump()})
 
         # Default Strategy Creation
         context = StrategyContext(
@@ -268,7 +268,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
     def on_pocket_updated(self, pocket: Pocket):
         ticker = Ticker(pocket.ticker)
-        self.dashboard.update({'pocket': pocket.model_dump()})
+        self.dashboard.update({'type': 'pocket.update', 'payload': pocket.model_dump()})
 
         if pocket.status == PocketStateType.CLOSING:
             self.dashboard.log(f"Pocket Closing: {pocket.ticker} ({pocket.id[:8]})")
@@ -294,7 +294,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
              self.dashboard.log(f" -> Strategies cleaned up for Closed Pocket {pocket.id[:8]}")
 
     def on_pocket_deleted(self, pocket: Pocket):
-        self.dashboard.update({'pocket': pocket.model_dump()})
+        self.dashboard.update({'type': 'pocket.update', 'payload': pocket.model_dump()})
         self.dashboard.log(f"Pocket Deleted: {pocket.ticker} ({pocket.id[:8]})")
         
         # Cleanup associated strategies
@@ -302,21 +302,21 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
     # -- strategy events -------------------------
     def on_strategy_created(self, strategy: StrategyBase):
-        self.dashboard.update({'strategy': strategy.summary()})
+        self.dashboard.update({'type': 'strategy.update', 'payload': strategy.summary()})
         # Subscribe to WebSocket for real-time data (Orderbook, Ticker)
         if self.upbit_websocket:
             self.upbit_websocket.add_subscription([strategy.context.ticker])
 
     def on_strategy_signal(self, strategy: StrategyBase, signal: Signal):
-        self.dashboard.update({'strategy': strategy.summary()})
+        self.dashboard.update({'type': 'strategy.update', 'payload': strategy.summary()})
         # Queuing task for strategy
         self.task_queue.put(Task(cls=strategy, message=signal.model_dump()))
 
     def on_strategy_updated(self, strategy: StrategyBase):
-        self.dashboard.update({'strategy': strategy.summary()})
+        self.dashboard.update({'type': 'strategy.update', 'payload': strategy.summary()})
 
     def on_strategy_deleted(self, strategy: StrategyBase):
-        self.dashboard.update({'remove': {'id': strategy.strategy_id}})
+        self.dashboard.update({'type': 'entity.remove', 'payload': {'id': strategy.strategy_id}})
 
     # -- WebSocket Events -------------------------
     def on_ws_opened(self, cls):
@@ -864,15 +864,15 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         
     # -- order events ------------------------
     def on_order_created(self, order: dict):
-        self.dashboard.update({'order': order})
+        self.dashboard.update({'type': 'order.update', 'payload': order})
         self.orders[order['uuid']] = order
     
     def on_order_updated(self, order: dict):
-        self.dashboard.update({'order': order})
+        self.dashboard.update({'type': 'order.update', 'payload': order})
         self.orders[order['uuid']] = order
     
     def on_order_completed(self, order: dict):
-        self.dashboard.update({'order': order})
+        self.dashboard.update({'type': 'order.update', 'payload': order})
 
         ticker = Ticker(order['code'])
         price = Decimal(str(order['price']))
@@ -898,7 +898,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             self.dashboard.log(f"Unknown ask_bid: {ask_bid}")
    
     def on_order_deleted(self, order: dict):
-        self.dashboard.update({'order': order})
+        self.dashboard.update({'type': 'order.update', 'payload': order})
         
 
     def on_my_order(self, cls, message: dict):
@@ -922,13 +922,13 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
     # -- asset events ------------------------
     def on_asset_created(self, asset: dict):
-        self.dashboard.update({'asset': asset})
+        self.dashboard.update({'type': 'asset.update', 'payload': asset})
     
     def on_asset_updated(self, asset: dict):
-        self.dashboard.update({'asset': asset})
+        self.dashboard.update({'type': 'asset.update', 'payload': asset})
     
     def on_asset_deleted(self, asset: dict):
-        self.dashboard.update({'asset': asset})
+        self.dashboard.update({'type': 'asset.update', 'payload': asset})
 
     def on_my_asset(self, cls, message: dict):
         assets = message['assets']
@@ -936,7 +936,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
             ticker = Ticker(asset['currency'])
             dbasset = self.account_manager.get_asset_balance(ticker.ticker)
             
-            self.dashboard.update({'asset': dbasset})
+            self.dashboard.update({'type': 'asset.update', 'payload': dbasset})
             self.dashboard.log(f"Asset Update: {ticker.amount(dbasset['balance'])} by myAsset")
           
 
@@ -947,7 +947,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
         # logger.info(f"Ticker Update: {ticker} {current_price}")
         
         # Update Dashboard Ticker Info
-        self.dashboard.update({'ticker': message})
+        self.dashboard.update({'type': 'ticker.update', 'payload': message})
         
         # TODO: Strategy Manager
         if self.strategy_manager:
