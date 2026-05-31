@@ -25,7 +25,13 @@ class TestAccount(unittest.TestCase):
         self.db_upbit = DBTradeManager(callback=self.mock_callback)
         self.db_upbit.asset_repo = MagicMock()
         self.db_upbit.order_repo = MagicMock()
-        
+
+        # Prevent live Upbit API calls in market order price lookup
+        mock_ob = {'orderbook_units': [{'ask_price': 50000000}]}
+        self.patcher_ob = patch('account.dbupbit.pyupbit.get_orderbook', return_value=mock_ob)
+        self.patcher_ob.start()
+        self.addCleanup(self.patcher_ob.stop)
+
         # AccountDBManager wrapper
         self.account = AccountDBManager(callback=self.mock_callback)
         self.account.manager = self.db_upbit # Inject mocked DBTradeManager
