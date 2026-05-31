@@ -87,6 +87,20 @@ def main():
     
     manager.init(config=config)
 
+    # --- WebSocket Dashboard Server ---
+    try:
+        from src.ws_server import start_ws_server
+        dash_cfg = config.get("dashboard", {})
+        start_ws_server(
+            state_store=manager.dashboard._state_store,
+            host=dash_cfg.get("host", "127.0.0.1"),
+            port=dash_cfg.get("port", 8765),
+            token=dash_cfg.get("token") or os.environ.get("DASHBOARD_TOKEN"),
+        )
+    except Exception as e:
+        logger.warning(f"WebSocket server failed to start: {e}")
+    # ---------------------------------
+
     # --- MCP Integration ---
     try:
         from project_mcp.mymcp import mcp, initialize_command_context

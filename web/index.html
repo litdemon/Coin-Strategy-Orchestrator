@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coin Strategy Dashboard</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Courier New', monospace; background: #0d1117; color: #c9d1d9; font-size: 13px; }
+    header { background: #161b22; border-bottom: 1px solid #30363d; padding: 10px 16px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 15px; color: #58a6ff; }
+    .badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+    .badge-green { background: #1f6a2e; color: #56d364; }
+    .badge-red { background: #6e1313; color: #f85149; }
+    .badge-gray { background: #21262d; color: #8b949e; }
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    section { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px; }
+    section h2 { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; border-bottom: 1px solid #21262d; padding-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { color: #8b949e; font-weight: normal; text-align: left; padding: 4px 6px; font-size: 11px; }
+    td { padding: 4px 6px; border-top: 1px solid #21262d; }
+    .pos { color: #56d364; }
+    .neg { color: #f85149; }
+    .neu { color: #c9d1d9; }
+    #logs { font-size: 11px; max-height: 160px; overflow-y: auto; display: flex; flex-direction: column-reverse; }
+    .log-line { padding: 2px 0; border-bottom: 1px solid #21262d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .conn-status { margin-left: auto; font-size: 11px; }
+    .full-width { grid-column: 1 / -1; }
+  </style>
+</head>
+<body x-data="dashboard()" x-init="connect()">
+
+<header>
+  <h1>🏦 Coin Strategy Dashboard</h1>
+  <span class="conn-status">
+    <span :class="connected ? 'badge badge-green' : 'badge badge-red'"
+          x-text="connected ? 'LIVE' : 'DISCONNECTED'"></span>
+  </span>
+  <span class="badge badge-gray" x-text="'Updated: ' + lastUpdate"></span>
+</header>
+
+<main>
+  <!-- Tickers / Assets -->
+  <section>
+    <h2>Assets</h2>
+    <table>
+      <thead><tr><th>Ticker</th><th>Balance</th><th>Avg Buy</th><th>Current</th><th>PnL</th></tr></thead>
+      <tbody>
+        <template x-for="(t, code) in state.tickers" :key="code">
+          <tr x-show="t.asset && parseFloat(t.asset.balance || 0) > 0">
+            <td x-text="code"></td>
+            <td x-text="fmt(t.asset?.balance)"></td>
+            <td x-text="fmtPrice(t.asset?.avg_buy_price)"></td>
+            <td x-text="fmtPrice(t.trade_price)"></td>
+            <td :class="pnlClass(t.asset?.avg_buy_price, t.trade_price)"
+                x-text="pnlRate(t.asset?.avg_buy_price, t.trade_price)"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Pockets -->
+  <section>
+    <h2>Pockets</h2>
+    <table>
+      <thead><tr><th>Ticker</th><th>Entry</th><th>Volume</th><th>Status</th></tr></thead>
+      <tbody>
+        <template x-for="(p, id) in state.pockets" :key="id">
+          <tr>
+            <td x-text="p.ticker"></td>
+            <td x-text="fmtPrice(p.entry_price)"></td>
+            <td x-text="fmt(p.volume)"></td>
+            <td><span :class="p.status === 'ACTIVE' ? 'pos' : 'neu'" x-text="p.status"></span></td>
+          </tr>
+        </template>
+        <tr x-show="Object.keys(state.pockets).length === 0">
+          <td colspan="4" style="color:#8b949e;text-align:center">No active pockets</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Strategies -->
+  <section>
+    <h2>Strategies</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Ticker</th><th>Status</th></tr></thead>
+      <tbody>
+        <template x-for="(s, id) in state.strategies" :key="id">
+          <tr>
+            <td x-text="id.substring(0,8)" style="color:#8b949e"></td>
+            <td x-text="s.name || s.type || '-'"></td>
+            <td x-text="s.ticker || '-'"></td>
+            <td><span :class="s.status === 'ACTIVE' ? 'pos' : 'neu'" x-text="s.status"></span></td>
+          </tr>
+        </template>
+        <tr x-show="Object.keys(state.strategies).length === 0">
+          <td colspan="4" style="color:#8b949e;text-align:center">No active strategies</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Orders -->
+  <section>
+    <h2>Pending Orders</h2>
+    <table>
+      <thead><tr><th>UUID</th><th>Side</th><th>Price</th><th>Volume</th></tr></thead>
+      <tbody>
+        <template x-for="(o, uuid) in state.orders" :key="uuid">
+          <tr>
+            <td x-text="uuid.substring(0,8)" style="color:#8b949e"></td>
+            <td :class="o.ask_bid === 'bid' ? 'pos' : 'neg'" x-text="o.ask_bid === 'bid' ? 'BUY' : 'SELL'"></td>
+            <td x-text="fmtPrice(o.price)"></td>
+            <td x-text="fmt(o.volume)"></td>
+          </tr>
+        </template>
+        <tr x-show="Object.keys(state.orders).length === 0">
+          <td colspan="4" style="color:#8b949e;text-align:center">No pending orders</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Logs -->
+  <section class="full-width">
+    <h2>Recent Logs</h2>
+    <div id="logs">
+      <template x-for="(log, i) in [...state.logs].reverse()" :key="i">
+        <div class="log-line" x-text="log"></div>
+      </template>
+    </div>
+  </section>
+</main>
+
+<script>
+function dashboard() {
+  return {
+    connected: false,
+    lastUpdate: '--',
+    state: { tickers: {}, pockets: {}, strategies: {}, orders: {}, logs: [] },
+    ws: null,
+    reconnectMs: 2000,
+
+    connect() {
+      const token = new URLSearchParams(location.search).get('token') || '';
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const url = `${proto}://${location.host}/ws/view${token ? '?token=' + encodeURIComponent(token) : ''}`;
+      this.ws = new WebSocket(url);
+
+      this.ws.onopen = () => { this.connected = true; this.reconnectMs = 2000; };
+      this.ws.onclose = () => {
+        this.connected = false;
+        setTimeout(() => this.connect(), this.reconnectMs);
+        this.reconnectMs = Math.min(this.reconnectMs * 2, 30000);
+      };
+      this.ws.onerror = () => {};
+      this.ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'snapshot') {
+          this.state = msg.payload;
+        } else {
+          this.applyEvent(msg.type, msg.payload);
+        }
+        this.lastUpdate = new Date().toLocaleTimeString();
+      };
+    },
+
+    applyEvent(type, payload) {
+      if (type === 'ticker.update') {
+        const code = payload.code;
+        if (!this.state.tickers[code]) this.state.tickers[code] = { code };
+        this.state.tickers[code].trade_price = payload.trade_price;
+      } else if (type === 'asset.update') {
+        // Find ticker by currency
+        const code = Object.keys(this.state.tickers).find(k => k.endsWith('-' + payload.currency)) || payload.currency;
+        if (!this.state.tickers[code]) this.state.tickers[code] = { code };
+        this.state.tickers[code].asset = payload;
+      } else if (type === 'pocket.update') {
+        this.state.pockets[payload.id] = payload;
+      } else if (type === 'strategy.update') {
+        this.state.strategies[payload.strategy_id] = payload;
+      } else if (type === 'order.update') {
+        if (['done', 'cancel'].includes(payload.state)) {
+          delete this.state.orders[payload.uuid];
+        } else {
+          this.state.orders[payload.uuid] = payload;
+        }
+      } else if (type === 'entity.remove') {
+        delete this.state.strategies[payload.id];
+        delete this.state.pockets[payload.id];
+      } else if (type === 'log.append') {
+        this.state.logs.push(payload.message);
+        if (this.state.logs.length > 100) this.state.logs.shift();
+      }
+    },
+
+    fmt(v) { return v != null ? parseFloat(v).toFixed(4) : '-'; },
+    fmtPrice(v) { return v != null ? Math.round(parseFloat(v)).toLocaleString() : '-'; },
+    pnlRate(avg, cur) {
+      if (!avg || !cur || parseFloat(avg) === 0) return '-';
+      const r = (parseFloat(cur) - parseFloat(avg)) / parseFloat(avg) * 100;
+      return (r >= 0 ? '+' : '') + r.toFixed(2) + '%';
+    },
+    pnlClass(avg, cur) {
+      if (!avg || !cur || parseFloat(avg) === 0) return 'neu';
+      return parseFloat(cur) >= parseFloat(avg) ? 'pos' : 'neg';
+    },
+  };
+}
+</script>
+</body>
+</html>
