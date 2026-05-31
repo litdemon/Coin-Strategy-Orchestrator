@@ -1,7 +1,8 @@
 import unittest
 from decimal import Decimal
 import time
-from src.dashboard import Dashboard, TickerWidget, StrategyWidget
+from src.dashboard import Dashboard
+from src.tui_consumer import TickerWidget, StrategyWidget
 
 class TestDashboardBuyStrategy(unittest.TestCase):
     def test_rendering_orphan_strategy(self):
@@ -23,14 +24,16 @@ class TestDashboardBuyStrategy(unittest.TestCase):
             }
         }
         
-        # Process Update
+        # Process Update (goes through StateStore → TUIConsumer subscriber)
         dashboard._process_item(strategy_data)
-        
+        time.sleep(0.05)  # let subscriber fire
+
         # 2. Verify Ticker Widget Created
-        self.assertIn('KRW-BTC', dashboard.registry)
-        ticker_widget = dashboard.registry['KRW-BTC']
+        registry = dashboard._tui.registry
+        self.assertIn('KRW-BTC', registry)
+        ticker_widget = registry['KRW-BTC']
         self.assertIsInstance(ticker_widget, TickerWidget)
-        
+
         # 3. Verify Strategy Widget Created and Attached
         self.assertIn('strat-123', ticker_widget.children)
         strat_widget = ticker_widget.children['strat-123']

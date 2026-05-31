@@ -73,10 +73,9 @@ def main():
     
     logger.info("Starting Coin Strategy Manager")
 
-    manager = Manager()
-    
-    # Load Configuration
     config = load_config(args.config)
+    dash_mode = config.get("dashboard", {}).get("mode", "tui")
+    manager = Manager(mode=dash_mode)
     
     # Dynamic Client ID if empty
     if not config.get("messaging", {}).get("mqtt", {}).get("client_id"):

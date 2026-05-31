@@ -68,8 +68,8 @@ class Task:
         self.message = message
 
 class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
-    def __init__(self):
-
+    def __init__(self, mode: str = "tui"):
+        self._dashboard_mode = mode
         self.task_queue = Queue()
         self.counter = Counter()
         self.orders = {}
@@ -111,7 +111,7 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
 
     def init(self, config: dict = None):
 
-        self.dashboard = Dashboard() # Initialize Dashboard
+        self.dashboard = Dashboard(mode=self._dashboard_mode)
 
         tickers = self.init_account(config)
             

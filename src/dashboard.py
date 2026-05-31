@@ -1,22 +1,13 @@
+import logging
 import queue
 import threading
 import time
-import json
-import os
-import sys
-from typing import Dict, Any, List, Optional
-from abc import ABC, abstractmethod
-import logging
-from tools.candle import Candle
-from tools.ticker import Ticker
-from tools.currency_print import WonColor, RateColor, Won, WonR, WonG, WonY, WonB
-from decimal import Decimal
 import traceback
+from typing import Any, Dict
+
 from src.dashboard_state import DashboardStateStore
 
 logger = logging.getLogger(__name__)
-
-MAX_WIDTH = 120
 
 VALID_EVENT_TYPES = frozenset({
     'log.append', 'ticker.update', 'asset.update', 'orderbook.update',
@@ -24,542 +15,62 @@ VALID_EVENT_TYPES = frozenset({
 })
 
 
-# widget의 계층 구조
-# Dashboard
-#   └── LogWidget
-#   └── TickerWidget
-#       └── CandleWidget
-#       └── AssetWidget
-#       └── OrderWidget x N
-#       └── PocketsWidget x N
-#           └── StrategyWidget x N
-class Spinner:
-    def __init__(self):
-        self.spins = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-        self.index = 0
-        self._count = 0
-
-    def next(self):
-        self.index = (self.index + 1) % len(self.spins)
-        self._count += 1
-        return self.spins[self.index]
-    
-    def count(self):
-        return self._count
-
-    def __call__(self):
-        return self.spins[self.index]
-
-
-class Widget(ABC):
-
-    def __init__(self, id: str, parent: Optional['Widget'] = None):
-        self.id = id
-        self.parent = parent
-        self.spinner = Spinner()
-        self.children: Dict[str, 'Widget'] = {}
-    
-    def add_child(self, widget: 'Widget'):
-        self.children[widget.id] = widget
-
-    @abstractmethod
-    def update(self, data: Dict[str, Any]):
-        pass
-    
-    @abstractmethod
-    def render(self, current_price: Decimal = Decimal("0")) -> str:
-        pass
-
-
-class LogWidget(Widget):
-    def __init__(self, parent: Optional['Widget'] = None):
-        super().__init__("log", parent)
-        self.logs = []
-        self.max_logs = 8
-    
-    def update(self, data: Dict[str, Any]):
-        if 'message' in data:
-            self.update_log(data['message'])
-
-    def update_log(self, message: str):
-        space = MAX_WIDTH - len(message)
-        self.logs.append(message + " " * space)
-        if len(self.logs) > self.max_logs:
-            self.logs.pop(0)
-    
-    def render(self, current_price: Decimal = Decimal("0")) -> str:
-        return "\n".join(self.logs)
-
-class StrategyWidget(Widget):
-    def __init__(self, id: str, parent: 'Widget'):
-        super().__init__(id, parent)
-        self.name = "Unknown"
-        self.state = ""
-        self.config = {}
-        self.display = ""
-
-    def update(self, data: Dict[str, Any]):
-        self.spinner.next()
-        # logger.info(f"Strategy Update: {json.dumps(data, indent=4, default=str)}")
-        # data is StrategyDTO or dict
-        self.name = data.get('name', data.get('type', self.name)) # Updated to prioritize name
-        self.state = data.get('status', self.state)
-        self.config = data.get('config', self.config)
-        self.display = data.get('display', self.display)
-        
-        # Handle simple dict update too
-        if 'strategy' in data: # legacy or simple dict
-             self.name = data.get('strategy', self.name)
-        if 'state' in data:
-             self.state = data.get('state', self.state)
-
-    def render(self, current_price: Decimal = Decimal("0")) -> str:
-        # Format config for display
-        
-
-        return f"\033[96m{self.spinner()} {self.name}[{self.display}]\033[0m"
-
-
-class PocketWidget(Widget):
-    def __init__(self, id: str, parent: 'Widget'):
-        super().__init__(id, parent)
-        self.entry_price = Decimal("0")
-        self.close_price = Decimal("0")
-        self.volume = Decimal("0")
-        # self.strategies: Dict[str, StrategyWidget] = {} # Map ID to Widget
-        self.status = ""
-
-    def update(self, data: Dict[str, Any]):
-        # logger.info(f"Pocket Update: {json.dumps(data, indent=4, default=str)}")
-        # data is Pocket dict or dump
-        self.entry_price = Decimal(str(data.get('entry_price', self.entry_price)))
-        self.close_price = Decimal(str(data.get('close_price'))) if data.get('close_price') else self.close_price
-        self.volume = Decimal(str(data.get('volume', self.volume)))
-        self.status = data.get('status', self.status)
-        self.reason = data.get('reason', "")
-
-    def render(self, current_price: Decimal = Decimal("0")) -> str:
-        # PnL
-        profit_rate = (current_price - self.entry_price) / self.entry_price * 100
-
-        # Volume
-        volume_krw = self.volume * self.entry_price
-
-        if self.status == 'closed':
-            profit_rate = (self.close_price - self.entry_price) / self.close_price * 100
-            profit = (self.close_price - self.entry_price) * self.volume
-            reason_str = f"[{self.reason}] " if self.reason else ""
-            return f"   └─ Pocket | ✖ Closed {WonColor(profit)}:{RateColor(profit_rate)} - {reason_str}"
-        else:
-            # Render strategies
-            strategy_str = ", ".join([s.render() for s in self.children.values() if isinstance(s, StrategyWidget)])
-            return f"   └─ Pocket | ▶ ⛁ {Won(volume_krw)}:{RateColor(profit_rate)} | {strategy_str}"
-    
-class AssetWidget(Widget):
-    def __init__(self, currency: str):
-        super().__init__(currency, None) # Root widget
-        self.ticker = Ticker(currency)
-        self.balance = Decimal("0")
-        self.avg_buy_price = Decimal("1")
-        self.locked = Decimal("0")
-        
-    
-    def update(self, data: Dict[str, Any]):
-        self.balance = Decimal( data.get('balance', self.balance) )
-        self.avg_buy_price = Decimal(data.get('avg_buy_price', self.avg_buy_price))
-        self.locked = Decimal(data.get('locked', self.locked))
-    
-    def won_total(self, current_price: Decimal = Decimal("0")) -> Decimal:
-        if self.ticker.currency == "KRW":
-            return self.balance + self.locked
-        won_total = ( self.balance + self.locked ) * current_price
-        return won_total
-    
-    def buy_price(self):
-        won = self.balance * self.avg_buy_price
-        return won
-    
-    def locked_price(self):
-        won = self.locked * self.avg_buy_price
-        return won
-    
-    def render(self, current_price: Decimal = Decimal("0")) -> str:
-        
-        if self.ticker.currency == "KRW":
-            if self.locked > Decimal("0"):
-                 return f"💰 {WonY(self.balance)} (Lock: {WonR(self.locked)})"
-            return f"💰 {WonY(self.balance)}"
-
-        profit_rate = Decimal("0")        
-        if self.avg_buy_price > Decimal("0"):
-            profit_rate = (current_price - self.avg_buy_price) / self.avg_buy_price * 100
-            
-
-        locked_str = ""
-        if self.locked > Decimal("0"):
-            won_locked = self.locked * current_price
-            locked_str = f" (Lock: {WonR(won_locked)})"
-
-        won_total = self.won_total(current_price)
-        
-        profit_str = ""
-        if self.balance > Decimal("0"):
-            won_profit = ( current_price - self.avg_buy_price ) * self.balance
-            profit_str = f" ({WonColor(won_profit)}:{RateColor(profit_rate)})"
-
-        return f"💰 {WonY(won_total)}{locked_str}{profit_str} "
-
-
-class OrderWidget(Widget):
-    def __init__(self, id: str, parent: 'Widget'=None):
-        super().__init__(id, parent)
-        self.uuid = id
-        self.market = ""
-        self.ask_bid = ""
-        self.ord_type = ""
-        self.price = Decimal("0")
-        self.volume = Decimal("0")
-        self.volume = Decimal("0")
-        self.created_at = time.time()
-        self.state = ""
-        self.ticker = None
-
-    def update(self, data: Dict[str, Any]):
-
-        self.uuid = data.get('uuid', self.uuid)
-        self.market = data.get('code', "") or data.get('market', "")
-        
-        # side/ask_bid mapping
-        self.ask_bid = data.get('ask_bid', data.get('side', self.ask_bid))
-        
-        self.ord_type = data.get('order_type', data.get('ord_type', self.ord_type))
-        
-        # Safe Decimal conversion
-        try:
-            price_val = data.get('price')
-            if price_val is None:
-                self.price = Decimal("0")
-            else:
-                self.price = Decimal(str(price_val))
-        except:
-             self.price = Decimal("0")
-
-        try:
-            vol_val = data.get('volume')
-            if vol_val is None:
-                self.volume = Decimal("0")
-            else:
-                self.volume = Decimal(str(vol_val))
-        except:
-             self.volume = Decimal("0")
-
-        self.state = data.get('state', self.state)
-        self.ticker = Ticker(self.market)
-
-    def render(self, current_price: Decimal = Decimal("0")) -> str:
-        total = self.price * self.volume
-        # Format: [ sell/buy, ticker, amount, fee, order_price ]
-        sidestr = "BUY" if self.ask_bid == "bid" else "SELL"
-        color = "\033[31m" if self.ask_bid == "bid" else "\033[34m" # Red for Buy, Blue for Sell
-        
-        # Fee calculation (estimation 0.05%)
-        fee = total * Decimal("0.0005") 
-        
-        return f"   └─ Order: {color}{sidestr:<4}\033[0m | {self.ticker.ticker:<10} | Vol: {self.volume:,.4f} | Fee: {fee:,.0f} | Price: {self.price:,.0f}"
-
-class TickerWidget(Widget):
-    
-    def __init__(self, ticker: str):
-        super().__init__(ticker, None) # Root widget
-        self.coin = Ticker(ticker)
-        
-        self.asset : AssetWidget = AssetWidget(ticker)
-        # Candle initialization (could be async or deferred)
-        self.candle : Candle = Candle(self.coin.ticker, Decimal("0"))
-        self.spinner = Spinner()
-
-    def update(self, data: Dict[str, Any]):
-        # Check if balance update or ticker update
-        if 'balance' in data:
-            self.asset.update(data)
-        
-        if 'trade_price' in data: # Ticker update
-             self.candle.update(data['trade_price'])
-        
-        if 'price' in data and 'ticker' in data: # Generic update format
-             self.candle.update(data['price'])
-        
-        self.spinner.next()
-        
-        
-    def render(self, current_price: Decimal = Decimal("0")) -> str:
-        output = []
-        
-        def with_space(line: str):
-            space = ' ' * (MAX_WIDTH - len(line))
-            return f"{line}{space}"
-
-        current_price = self.candle.current_price()
-        # Candle uses float, AssetWidget uses Decimal
-        current_price_dec = Decimal(str(current_price))
-
-        candle_str = f"{self.spinner()} {self.candle.render()} {Won(current_price_dec)}"
-        output.append(with_space(f" {self.coin.ticker:11} | {candle_str}"))
-        if self.asset.balance > Decimal("0"):
-            output.append(with_space(f"   └─ Asset | {self.asset.render(current_price_dec)} "))
-        
-        # Render child widgets (Pockets and Strategies)
-        if self.children:
-            # Separate by type
-            strategies = [w for w in self.children.values() if isinstance(w, StrategyWidget)]
-            pockets = [w for w in self.children.values() if isinstance(w, PocketWidget)]
-            
-            # Render Strategies first
-            if strategies:
-                strat_str = ", ".join([s.render(current_price_dec) for s in strategies])
-                output.append(with_space(f"   └── Strategies: {strat_str}"))
-
-            # Render Orders
-            orders = [w for w in self.children.values() if isinstance(w, OrderWidget)]
-            for order in orders:
-                output.append(with_space(order.render(current_price_dec)))
-
-            # Render Pockets
-            for pos in pockets:
-                output.append(with_space(pos.render(current_price_dec)))
-
-        
-        output.append("-" * MAX_WIDTH)
-        return "\n".join(output)
-
 class Dashboard:
-    def __init__(self):
+    """
+    Thin facade: routes update() calls through DashboardStateStore.
+    No ANSI rendering. No Widget classes.
+    TUI rendering is delegated to TUIConsumer (mode='tui').
+    """
+
+    def __init__(self, mode: str = "tui"):
         self.queue = queue.Queue()
         self.running = False
-        
-        # Registry: global map of ID -> Widget
-        self.registry: Dict[str, Widget] = {}
-        
-        # Ticker Widgets are roots, store them in registry using ticker symbol
-        
-        self.log_widget = LogWidget()
-        self.registry['log'] = self.log_widget
-        
-        self.lock = threading.Lock()
-        self._thread = None
-        self.spinner = Spinner()
-        self.orderbook_spinner = Spinner()
-        self.ticker_spinner = Spinner()
-        self.pocket_spinner = Spinner()
-        self.strategy_spinner = Spinner()
-        self.order_spinner = Spinner()
-        self.total_balance = Decimal("0")
-
+        self._mode = mode
         self._state_store = DashboardStateStore()
-        self._state_store.subscribe(self._tui_on_event)
+        self._thread = None
 
+        if mode in ("tui", "both"):
+            from src.tui_consumer import TUIConsumer
+            self._tui = TUIConsumer(self._state_store)
+        else:
+            self._tui = None
+
+    # ── Public API ──────────────────────────────────────────────────────────
 
     def start(self):
         self.running = True
+        if self._tui:
+            self._tui.start()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
     def stop(self):
         self.running = False
+        if self._tui:
+            self._tui.stop()
         if self._thread:
             self._thread.join(timeout=1.0)
 
-    # -- Public API: Generic Update --
     def update(self, data: Dict[str, Any]):
-        """
-        Generic update method.
-        Queues data for processing on main thread.
-        """
         self.queue.put(data)
 
     def log(self, message: str):
         self.update({'type': 'log.append', 'payload': {'message': message}})
         logger.info(message)
-        
-    # -- Internal Processing --
+
+    # ── Internal ────────────────────────────────────────────────────────────
+
     def _process_item(self, data: Dict[str, Any]):
-        self.spinner.next()
         mtype = data.get('type')
         payload = data.get('payload')
         if mtype not in VALID_EVENT_TYPES or payload is None:
-            self.log(f"Unknown or malformed event: {data}")
+            logger.warning(f"Unknown or malformed event: {data}")
             return
         self._state_store.apply_event(mtype, payload)
 
-    def _tui_on_event(self, event_type: str, payload: dict) -> None:
-        """TUI subscriber: updates Widget tree when StateStore notifies."""
-        with self.lock:
-            target_id = None
-            widget_type = None
-
-            if event_type == 'ticker.update':
-                target_id = Ticker(payload.get('code')).ticker
-                widget_type = 'ticker'
-            elif event_type == 'log.append':
-                self.log_widget.update(payload)
-                return
-            elif event_type == 'asset.update':
-                target_id = Ticker(payload.get('currency')).ticker
-                widget_type = 'ticker'
-            elif event_type == 'orderbook.update':
-                self.orderbook_spinner.next()
-                target_id = Ticker(payload.get('code')).ticker
-                widget_type = 'ticker'
-            elif event_type == 'pocket.update':
-                self.pocket_spinner.next()
-                target_id = payload.get('id')
-                widget_type = 'pocket'
-            elif event_type == 'strategy.update':
-                self.strategy_spinner.next()
-                target_id = payload.get('strategy_id')
-                widget_type = 'strategy'
-            elif event_type == 'order.update':
-                self.order_spinner.next()
-                target_id = payload.get('uuid')
-                widget_type = 'order'
-            elif event_type == 'entity.remove':
-                target_id = payload.get('id')
-                if target_id and target_id in self.registry:
-                    self.log(f"Removing widget: {target_id}")
-                    widget = self.registry[target_id]
-                    if widget.parent and hasattr(widget.parent, 'children'):
-                        if target_id in widget.parent.children:
-                            del widget.parent.children[target_id]
-                            self._check_and_remove_ticker(widget.parent.id)
-                    del self.registry[target_id]
-                return
-
-            if not target_id:
-                return
-
-            if target_id not in self.registry:
-                if event_type in ('ticker.update', 'orderbook.update'):
-                    return
-                self._create_widget(target_id, widget_type, payload)
-
-            if target_id in self.registry:
-                widget = self.registry[target_id]
-                widget.update(payload)
-
-                if widget_type == 'order':
-                    if widget.state in ['done', 'cancel']:
-                        self.log(f"Removing completed order: id:{target_id:8} ({widget.state})")
-                        if widget.parent and hasattr(widget.parent, 'children'):
-                            if target_id in widget.parent.children:
-                                del widget.parent.children[target_id]
-                        del self.registry[target_id]
-                        if widget.parent:
-                            self._check_and_remove_ticker(widget.parent.id)
-                        return
-
-                if widget_type in ['asset', 'ticker', 'pocket']:
-                    cleanup_target_id = None
-                    if target_id in self.registry and isinstance(self.registry[target_id], TickerWidget):
-                        cleanup_target_id = target_id
-                    elif target_id in self.registry and isinstance(self.registry[target_id], PocketWidget):
-                        parent = self.registry[target_id].parent
-                        if parent and isinstance(parent, TickerWidget):
-                            cleanup_target_id = parent.id
-
-                    if cleanup_target_id:
-                        self._check_and_remove_ticker(cleanup_target_id)
-                
-    def _check_and_remove_ticker(self, ticker_id: str):
-        if ticker_id not in self.registry:
-            return
-            
-        widget = self.registry[ticker_id]
-        if not isinstance(widget, TickerWidget):
-            return
-
-        # Condition 1: Balance & Locked is 0
-        if widget.asset.balance > 0 or widget.asset.locked > 0:
-            return
-            
-        # Strict Check: Balance 0, Locked 0, And No Children (Orders, Pockets, Strategies)
-        if not widget.children and widget.asset.balance <= 0 and widget.asset.locked <= 0:
-             self.log(f"Removing empty ticker: {ticker_id}")
-             del self.registry[ticker_id]
-             return
-
-        # Explicitly return if conditions not met (cleaning up previous logic)
-        return
-
-                
-    def _create_widget(self, id: str, w_type: str, data: Dict[str, Any]):
-        widget = None
-        parent_id = None
-        
-        if w_type == 'ticker':
-            widget = TickerWidget(id) # Parent None
-            widget.avg_buy_price = data.get('avg_buy_price', 0)
-        
-        elif w_type == 'order':
-            # Needs parent ticker
-            t_code = Ticker(data.get('code', "") or data.get('market', "")).ticker
-            if t_code not in self.registry:
-                 self._create_widget(t_code, 'ticker', {'code': t_code})
-            
-            parent = self.registry[t_code]
-            widget = OrderWidget(id, parent) 
-            widget.update(data)
-            parent.add_child(widget)
-        
-        elif w_type == 'pocket':
-            # Needs parent ticker
-            ticker = Ticker(data.get('ticker')).ticker
-            if ticker not in self.registry:
-                 # Create TickerWidget first
-                 self._create_widget(ticker, 'ticker', {'code': ticker})
-            
-            parent = self.registry[ticker]
-            widget = PocketWidget(id, parent)
-            parent.add_child(widget)
-            
-        elif w_type == 'strategy':
-            # Needs parent pocket OR ticker
-            # StrategyDTO has 'pocket_id' (optional) or 'ticker'
-            pos_id = data.get('pocket_id')
-            ticker_code = data.get('ticker')
-            
-            # 1. Try Pocket Parent
-            if pos_id and pos_id in self.registry:
-                parent = self.registry[pos_id]
-                widget = StrategyWidget(id, parent)
-                parent.add_child(widget)
-            
-            # 2. Try Ticker Parent (Orphan Strategy)
-            elif ticker_code:
-                t_code = Ticker(ticker_code).ticker
-                if t_code not in self.registry:
-                     self._create_widget(t_code, 'ticker', {'code': t_code})
-                
-                parent = self.registry[t_code]
-                widget = StrategyWidget(id, parent)
-                parent.add_child(widget)
-            else:
-                # Strategy without pocket or ticker? Impossible to place.
-                logger.warning(f"Dashboard: Strategy {id} has no pocket_id or ticker. Cannot create widget.")
-                return
-
-        if widget:
-            self.registry[id] = widget
-
-
     def _run_loop(self):
-        # Clear screen initially
-        os.system('clear')
-        last_render = 0
-        render_interval = 0.1 
-        
         while self.running:
             try:
-                # Process queue
                 while True:
                     try:
                         data = self.queue.get_nowait()
@@ -567,53 +78,9 @@ class Dashboard:
                     except queue.Empty:
                         break
                     except Exception as e:
-                        logger.error(f"Error processing item: {traceback.print_exc()}")
-                        logger.error(f"Error processing item: {e}")
+                        logger.error(f"Error processing item: {e}\n{traceback.format_exc()}")
                         break
-
-                # Render
-                now = time.time()
-                if now - last_render > render_interval:
-                    self._render()
-                    last_render = now
-
-                time.sleep(0.1)
-                
+                time.sleep(0.05)
             except Exception as e:
-                print(traceback.print_exc())
                 logger.error(f"Error in run loop: {e}")
                 self.running = False
-
-    def _total_balance(self):
-        total = Decimal("0")
-        for coin in self.registry.values():
-            if isinstance(coin, TickerWidget):
-                total += coin.asset.won_total(coin.candle.current_price())
-        return total
-
-    def _render(self):
-        # TUI consumes StateStore.snapshot() for logs
-        snap = self._state_store.snapshot()
-        recent_logs = snap['logs'][-self.log_widget.max_logs:]
-        self.log_widget.logs = [l + " " * max(0, MAX_WIDTH - len(l)) for l in recent_logs]
-
-        sys.stdout.write("\033[H")
-
-        output = []
-        output.append("=" * MAX_WIDTH)
-        info = f"OB:{self.orderbook_spinner.count()} | T:{self.ticker_spinner.count()} | P:{self.pocket_spinner.count()} | S:{self.strategy_spinner.count()} | O:{self.order_spinner.count()}"
-        output.append(f" Coin Strategy Dashboard ({time.strftime('%H:%M:%S')}) {self.spinner()} {info}")
-        output.append(f"    Total Asset: 🏦 {WonY(self._total_balance())}")
-        output.append("=" * MAX_WIDTH)
-
-        with self.lock:
-            tickers = sorted([w for w in self.registry.values() if isinstance(w, TickerWidget)], key=lambda x: x.id)
-            for widget in tickers:
-                output.append(widget.render())
-
-        output.append("")
-        output.append("[Recent Logs]")
-        output.append(self.log_widget.render())
-
-        sys.stdout.write("\n".join([line + "\033[K" for line in output]) + "\033[J")
-        sys.stdout.flush()
