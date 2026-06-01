@@ -184,15 +184,18 @@ def main():
     # ------------------------------------
 
     try:
-        # Run loop
         while True:
-            manager.run()
+            try:
+                manager.run()
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                logger.error(f"Manager crashed — restarting in 5s: {e}")
+                logger.error(traceback.format_exc())
+                time.sleep(5)
     except KeyboardInterrupt:
         logger.info("Stopping...")
         manager.stop()
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        logger.error(traceback.format_exc())
 
 if __name__ == "__main__":
     main()

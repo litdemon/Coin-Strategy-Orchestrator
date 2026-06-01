@@ -23,13 +23,17 @@ class WebsocketObserver(ABC):
     def on_ws_closed(self, cls):
         pass
 
+_RECONNECT_MIN = 3
+_RECONNECT_MAX = 60
+
+
 class UpbitWebSocketBase(ABC):
     def __init__(self, observer: WebsocketObserver):
         self.observer = observer
         self.ws: Optional[websocket.WebSocketApp] = None
         self.is_running = False
         self.thread = None
-        self.reconnect_delay = 3
+        self.reconnect_delay = _RECONNECT_MIN
         self.uri = None
         self.headers = None
         self.request = None
@@ -51,6 +55,7 @@ class UpbitWebSocketBase(ABC):
 
     def _on_open(self, ws):
         logger.info(f"WebSocket Opened {self.request}")
+        self.reconnect_delay = _RECONNECT_MIN  # reset on successful connect
         self.observer.on_ws_opened(self)
         if self.request:
             ws.send(json.dumps(self.request))
@@ -71,8 +76,9 @@ class UpbitWebSocketBase(ABC):
                 logger.error(f"WebSocket connection failed: {e}")
             
             if self.is_running:
-                logger.info(f"Reconnecting in {self.reconnect_delay} seconds...")
+                logger.info(f"Reconnecting in {self.reconnect_delay}s...")
                 time.sleep(self.reconnect_delay)
+                self.reconnect_delay = min(self.reconnect_delay * 2, _RECONNECT_MAX)
 
     def start(self):
         logger.info(f"{self.__class__.__name__} started")

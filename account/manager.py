@@ -11,6 +11,7 @@ from account.dbupbit import DBTradeManager
 from account.dtos import OrderDTO
 from account.exceptions import InsufficientBalanceException
 from tools.ticker import Ticker
+from tools.retry import with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -107,12 +108,15 @@ class AccountDBManager(AccountBase):
         orders = self.manager.get_open_orders()
         return [order.model_dump() for order in orders]
     
+    @with_retry(max_attempts=3, base_delay=1.0)
     def get_current_price(self, ticker: str) -> Decimal:
         return pyupbit.get_current_price(ticker)
-    
+
+    @with_retry(max_attempts=3, base_delay=1.0)
     def get_ohlcv(self, ticker: str, interval: str = "minute1", count: int = 200) -> List[dict]:
         return pyupbit.get_ohlcv(ticker, interval, count)
-        
+
+    @with_retry(max_attempts=3, base_delay=1.0)
     def get_orderbook(self, ticker: str) -> List[dict]:
         return pyupbit.get_orderbook(ticker)
 
@@ -229,6 +233,7 @@ class LiveAccountManager(AccountBase):
 
     # --- Order placement ---
 
+    @with_retry(max_attempts=3, base_delay=1.0)
     def buy_market_order(self, ticker: str, volume: Decimal) -> dict:
         # pyupbit market buy takes KRW price (not coin volume); convert using current price
         current_price = pyupbit.get_current_price(ticker)

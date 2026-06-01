@@ -19,10 +19,11 @@ class MqttAdapter(MessagingClient):
         self.client_id = client_id or f"trading_client_{uuid.uuid4().hex[:8]}"
         
         self.client = mqtt.Client(client_id=self.client_id, callback_api_version=CallbackAPIVersion.VERSION2)
-        
+        self.client.reconnect_delay_set(min_delay=1, max_delay=60)
+
         if username and password:
             self.client.username_pw_set(username, password)
-            
+
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
