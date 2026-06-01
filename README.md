@@ -1,156 +1,201 @@
-* # Coin Strategy Orchestrator
+# Coin Strategy Orchestrator
 
-* Coin Strategy Orchestrator는 투자 자문이나 수익 보장을 제공하지 않으며,
-모든 전략 설정과 거래 실행에 대한 판단 및 책임은 사용자에게 있습니다.
+Upbit 거래소 기반 자동화 트레이딩 시스템. 가상 계좌로 전략을 테스트하거나 실계좌에 연동하여 운용합니다.
+AI Agent(Claude Desktop 등)를 MCP로 연결하면 자연어 명령으로 전략 생성·매수·매도를 제어할 수 있습니다.
 
-Coin Strategy Orchestrator는 Upbit 거래소의 시세 데이터를 기반으로 사용자가 정의한 거래 전략을 자동 실행· 시험 실행하도록 지원하는 거래 자동화 시스템입니다.
+> ⚠️ 본 소프트웨어는 투자 자문이나 수익을 보장하지 않습니다. 모든 거래 판단과 책임은 사용자에게 있습니다.
 
-본 시스템은 Trailing Stop, Scalping 등 다양한 전략을
-포켓(Pocket) 단위의 예산에 적용하여 병렬로 운용할 수 있도록 설계되었으며,
-시스템 중단 시에도 전략 상태를 로컬에 보존하여 복구가 가능하도록 구성되어 있습니다.
+---
 
-Coin Strategy Orchestrator는 투자 자문이나 수익 보장을 제공하지 않으며,
-모든 전략 설정과 거래 실행에 대한 판단 및 책임은 사용자에게 있습니다.
+## 시스템 요구사항
 
-## Project Overview
+| 항목 | 최소 요건 |
+|------|-----------|
+| Python | **3.11 이상** (3.10 이하 미지원) |
+| MQTT 브로커 | 필수 — `mosquitto` 등 로컬 또는 원격 브로커 |
+| 운영체제 | macOS / Linux (Windows 미검증) |
 
-Coin Strategy Orchestrator는 Upbit 시세를 기준으로 포켓(Pocket) 단위 자산을 관리하고, 지정된 예산·전략 조합을 지속 운용하도록 설계된 로컬 실행형 트레이딩 시스템입니다. 실시간 Price Feed를 수신해 전략이 요구하는 신호를 계산하고, 체결 내역과 상태를 로컬 DB에 보존하여 중단 이후에도 복구가 가능합니다.
+### 의존성 패키지
 
-시스템은 KRW 기반 Spot 자산(가상 자산)을 지원하며 실제 거래와 최대한 동일한 전략 파이프라인을 공유 할 수 있도록 설계하였습니다. Price Feed → Pocket Manager → Strategy Engine → Account Manager → Messaging → Dashboard/Data Export 단계로 이어지는 파이프라인을 통해 시세·전략·거래·모니터링이 하나의 루프로 묶입니다. 이를 통해 전략 검증부터 실계좌 운용까지 일관된 경험을 제공합니다.
+```
+pyupbit, python-dotenv, pandas, numpy, pydantic
+mcp, fastapi, uvicorn, websockets
+```
 
-  ### Key Features
-  *   **Strategy Orchestration**: 여러 코인에 대해 다수의 전략을 동시에 병렬 실행
-  *   **Strategy Persistence**: 전략 상태(진입가, 목표가, 현재 상태 등)를 로컬 DB에 저장하여 재시작 시 자동 복구
-  *   **Virtual Mode**: 가상 자산으로 전략 테스트 (수수료 및 체결 시뮬레이션 포함)
-  *   **Strategy Types**:
-      *   Default Strategy (기본 매매 : Trailing Stop, Stop Loss, Take Profit)
-      *   Scalping Strategy (스캘핑)
-      *   Anomaly Detection Strategy (이상치 탐지)
-      *   Deep Learning Anomaly Detection (딥러닝 기반 이상치 탐지)
-      *   (확장 가능)
-  *   **Dashboard**: 실시간 상태 로그 및 자산/전략 현황 모니터링
-  *   **Messaging**: MQTT를 통한 외부 명령 수신 및 상태 제어
-  *   **MCP Server**: AI Agent가 pocket, strategy, sell, buy 등을 제어할 수 있도록 MCP 프로토콜을 통한 인터페이스 제공
+---
 
-  ## Architecture & Data Flow
+## 빠른 시작
 
-  ```mermaid
-  flowchart LR
-      
-      PF -- [Price Feed(Upbit WebSocket)] --> PM[Pocket Manager]
-      PM --> SE[Strategy Engine]
-      SE --> AM[Account Manager]
-      AM --> MSG[Messaging Layer]
-      MSG --> DBX[Dashboard / Data Export]
-  
-      AM <-->|Orders & Balances| UPT[Upbit API / Real Account]
-      AM -->|Simulated fills| VIRT[Virtual Ledger]
-  ```
+### 1. 가상환경 생성 및 패키지 설치
 
-  - **Price Feed**: Upbit WebSocket/REST로부터 틱·호가 데이터를 수집해 Pocket/전략에 전달.
-  - **Pocket Manager**: 전략별 포지션, 예산, 포켓 라이프사이클을 관리하며 Strategy Engine의 상태 저장소 역할 수행.
-  - **Strategy Engine**: 신호 생성, 진입/청산 조건 판별, Account Manager로 주문 의사결정 전달.
-  - **Account Manager**: Virtual/Real 인터페이스를 단일 추상화로 제공하며 체결, 수수료, 잔고 업데이트를 담당.
-  - **Messaging Layer**: MQTT/Redis 등 외부 명령 채널과 상태 브로드캐스트를 연결.
-  - **Dashboard/Data Export**: 운영자에게 실시간 상태를 시각화하고 로그·리포트를 생성.
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
 
-  ## 📂 Directory Structure
+### 2. API 키 설정 (가상 모드는 선택)
 
-  ```
-  /
-  ├── app.py                  # 메인 실행 파일
-  ├── account/                # 계좌 관리 (Upbit/Virtual)
-  ├── docs/                   # 프로젝트 문서 (PRD, 개발 가이드)
-  ├── messaging/              # 메시징 시스템 (MQTT 등)
-  ├── models/                 # 데이터 모델 (Trade, Order, Pocket 등)
-  ├── src/
-  │   ├── main.py             # 핵심 로직 (Manager)
-  │   ├── dashboard.py        # 대시보드 UI
-  │   ├── pocket_manager.py   # 포켓(개별 매매 단위) 관리
-  │   └── ...
-  ├── strategy/               # 전략 엔진 및 구현체
-  ├── tools/                  # 유틸리티 (Ticker, Converter 등)
-  ├── upbit/                  # Upbit WebSocket 연동
-  └── verify/                 # 검증 및 테스트 스크립트
-  ```
+```bash
+mkdir -p ~/.config
+cat > ~/.config/upbit.env <<EOF
+UPBIT_ACCESS_KEY=your_access_key
+UPBIT_SECRET_KEY=your_secret_key
+EOF
+```
 
-  ## Module Responsibilities
+가상 계좌로만 테스트할 경우 이 단계를 건너뛸 수 있습니다.
 
-  | Module | Role | Main Entry Points | External Dependencies |
-  | --- | --- | --- | --- |
-  | `account/` | Upbit/Virtual 계좌 상태, 주문 실행, 체결 반영 | `manager.py`, `repositories.py` | `pyupbit`, Upbit REST/WS |
-  | `messaging/` | MQTT/Redis/Socket 어댑터 관리 및 명령 라우팅 | `factory.py`, `adapters/*` | `paho-mqtt`, Redis client |
-  | `strategy/` | 전략 추상화 및 구현(Default/Volume) | `manager.py`, `buy_strategy.py` 등 | PyTorch |
-  | `src/` | 메인 런타임, 대시보드, 포켓 매니저, 파이프라인 어댑터 | `main.py`, `dashboard.py`, `pocket_manager.py` | `rich`, `websocket-client` 등 |
-  | `tools/` | 가격 변환, 티커 헬퍼, 파이프라인 유틸 | `pipeline.py`, `ticker.py` | `pandas`, 기타 유틸 |
-  | `verify/` | 시나리오 검증 스크립트(실거래 흐름 리허설) | `verify_all_feature.py` 등 | 테스트 대상 모듈 직접 참조 |
-  | `docs/` | PRD·가이드·TODO 등 문서 자산 | `docs/*.md` | 없음 |
+### 3. 설정 파일 확인 (`default.json`)
 
-  ## Setup & Configuration
+```json
+{
+  "messaging": {
+    "broker_type": "mqtt",
+    "mqtt": { "host": "mqtt.example.com", "port": 1883, "client_id": "" }
+  },
+  "account": {
+    "initial_balance": 10000000,
+    "fees": { "KRW": 0.0005 }
+  },
+  "dashboard": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "token": "",
+    "mode": "web"
+  },
+  "mcp": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}
+```
 
-  ### a. Python 가상환경 생성
-  - `python -m venv .venv && source .venv/bin/activate`
-  - Windows PowerShell: `.venv\Scripts\Activate.ps1`
+| 항목 | 설명 |
+|------|------|
+| `messaging.broker_type` | `"mqtt"` \| `"redis"` \| `"socket"` — 외부 명령 채널 |
+| `messaging.mqtt.host` | MQTT 브로커 주소 (MQTT 모드 필수) |
+| `account.initial_balance` | 가상 계좌 초기 잔고 (KRW) |
+| `account.fees.KRW` | 거래 수수료율 (0.05% = `0.0005`) |
+| `dashboard.port` | Web UI 포트 |
+| `dashboard.token` | 대시보드 접근 토큰 (빈 문자열이면 인증 없음) |
+| `dashboard.mode` | `"web"` (기본) \| `"tui"` \| `"both"` \| `"off"` |
+| `mcp.port` | AI Agent MCP 서버 포트 |
 
-  ### b. Requirements 설치
-  - `pip install -r requirements.txt`
-  - 개별 패키지 업데이트 시 `pip list --outdated`로 확인 후 `pip install --upgrade <package>`
+### 4. 실행
 
-  ### c. 환경 변수 정의
-  필수 ENV는 아래와 같으며 `.env`, OS 환경 변수, CI Secret 등 선호 방식으로 주입합니다.
+```bash
+python app.py
+```
 
-  | Key | Description |
-  | --- | --- |
-  | `UPBIT_ACCESS_KEY`, `UPBIT_SECRET_KEY` | Upbit REST 거래 키 |
-  | `MQTT_HOST`, `MQTT_PORT` | Messaging 브로커 연결 정보 |
-  | `DASHBOARD_PORT` | 대시보드 웹소켓/HTTP 포트 |
-  | `REDIS_URL` | Redis 기반 Messaging/캐시를 사용하는 경우 |
+시작 시 콘솔 출력:
 
-  ### d. 구성 파일 참고
-  - `default.json`: 메시징 브로커, 기본 전략 파라미터, 초기 포트 설정 등 런타임 기본값을 제공합니다.
-  - `requirements.txt`: 배포 환경 동기화를 위한 의존성 잠금 목록입니다.
+```
+  Dashboard  → http://127.0.0.1:8765
+  MCP Server → http://127.0.0.1:8000/mcp
+```
 
-  ## Running the System
+---
 
-  ### Step-by-step Runbook
-  1. **Config 준비**: `default.json` 검토, 필요 시 override 파일/ENV 작성.
-  2. **프로세스 실행**: `python app.py`
-  3. **대시보드 접속**: `http://localhost:${DASHBOARD_PORT}` 또는 설정된 원격 주소로 접속해 상태 확인.
-  4. **종료 절차**: CLI에서 `Ctrl+C`로 안전 종료 → 로그 확인 → 필요 시 `account/` 저장소 상태 점검.
+## Web 대시보드
 
-  ### Virtual Mode
-  - **데이터 소스**: Upbit 시세 + 시뮬레이션 체결
-  - **잔고/체결**: 가상 원장(`models/`)에서 처리
-  - **위험도**: 금전적 손실 없음, 전략 디버깅용
-  - **권장 사용**: 신규 전략 개발, 회귀 테스트, 시나리오 검증
+브라우저에서 `http://127.0.0.1:8765` 접속.
 
-  Virtual 모드에서는 수수료 및 체결 시뮬레이션을 포함하여 실전과 동일한 파이프라인을 검증할 수 있습니다.
+| 섹션 | 내용 |
+|------|------|
+| Assets | 보유 코인별 잔고·평균 매수가·현재가·손익률 |
+| Pockets | 활성 포지션 목록 (진입가·수량·상태) |
+| Strategies | 실행 중인 전략 목록 |
+| Pending Orders | 미체결 주문 |
+| Recent Logs | 실시간 시스템 로그 |
+| AI Agent 연결 가이드 | MCP 설정 안내 (접기/펼치기) |
 
-  ## Testing & Verification
+> 토큰이 설정된 경우 `http://127.0.0.1:8765?token=<토큰값>` 으로 접속합니다.
 
-  - **유닛/통합 테스트 (`tests/`)**
-    - 실행: `python -m unittest discover tests`
-    - 기대 출력: 각 전략/모듈별 PASS 결과와 실패 시 스택트레이스. 실패 시 최근 코드 변경과 테스트 픽스처(`tests/test_*`)를 교차 확인합니다.
-  - **시나리오 검증 (`verify/`)**
-    - 실행: `python verify/verify_all_feature.py` 또는 개별 스크립트(예: `verify_buy_strategy.py`).
-    - 기대 출력: 단계별 `[VERIFY]` 로그와 주문/포켓 상태 요약. 실패 시 로그 타임라인을 기준으로 메시징·전략·계좌 레이어를 순서대로 점검합니다.
+---
 
-  ## Documentation & Roadmap
+## AI Agent 연동 (MCP)
 
-  - `docs/Trading_signal_system.md`: 메시징/에이전트 요구사항과 본 README의 Architecture 섹션을 연결합니다.
-  - `docs/Strategy_PRD.md`: Strategy Manager 동작을 상세히 설명하며, README의 Module Responsibilities 표와 1:1 매핑됩니다.
-  - `docs/TODO.md`: 단기 개선 과제를 추적하며 README Roadmap과 우선순위를 공유합니다.
-  - `docs/dev_guide.md`: 디렉터리/코딩 가이드라인을 제공해 Setup 절차를 보완합니다.
+앱이 실행되면 MCP 서버가 `http://127.0.0.1:8000/mcp` 에서 대기합니다.
+대시보드 하단 **AI Agent 연결 가이드** 패널에서 설정 JSON을 복사할 수 있습니다.
 
-  **향후 우선순위 과제**
-  1. Strategy Manager 리팩터링으로 웹소켓·메시징 책임 분리.
-  2. Messaging 인증/암호화 도입 및 다중 브로커 지원 강화.
-  3. Dashboard 실시간 통계(총 자산, 전략 별 Sharpe 등) 확장.
+**Claude Desktop 설정 예시** (`claude_desktop_config.json`):
 
-  ## Additional References
+```json
+{
+  "mcpServers": {
+    "coin-strategy": {
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
 
-  자세한 내용은 `docs/` 폴더를 참고하세요.
-  *   [Coin Strategy PRD](docs/Coin%20strategy%20PRD.md)
-  *   [Developer Guide](docs/dev_guide.md)
-  *   [Trading Signal System](docs/Trading_signal_system.md)
-  *   [TODO](docs/TODO.md)
+사용 가능한 MCP 도구:
+
+| 도구 | 설명 | 주요 파라미터 |
+|------|------|--------------|
+| `buy` | 시장가·지정가 매수 | `ticker`, `won`(KRW금액) 또는 `volume`+`price` |
+| `sell` | 시장가·지정가 매도 | `ticker`, `volume`(`-1`=전량) |
+| `account` | 잔고 조회 | — |
+| `status` | 서버 상태 조회 | — |
+| `pockets` | 활성 포켓 목록 | — |
+| `orders` | 미체결 주문 목록 | — |
+| `cancel` | 주문 취소 | `ticker` 또는 `order_uuid` |
+| `price` | 현재가 조회 | `ticker` |
+| `manage_strategy` | 전략 생성·삭제·조회 | `action`, `name`, `ticker`, `budget` |
+
+자연어 명령 예시:
+- "BTC 10만원어치 시장가로 사줘"
+- "현재 잔고 알려줘"
+- "KRW-BTC에 scalping_strategy 전략을 50만원 예산으로 실행해줘"
+- "활성 포켓 목록 보여줘"
+
+---
+
+## 전략 목록
+
+| 전략명 | 클래스 | 설명 |
+|--------|--------|------|
+| `scalping_strategy` | `ScalpingStrategy` | 단기 가격 상승 신호 매수 |
+| `volume_spike_strategy` | `VolumeSpikeStrategy` | 거래량 급등 감지 (60초 주기) |
+| `anomaly_detection` | `AnomalyStrategy` | 통계적 이상치 감지 |
+| `dl_anomaly_detection` | `DeepAnomalyStrategy` | 딥러닝 이상치 감지 |
+| `trailing_stop` | `TrailingStopStrategy` | 트레일링 스탑 (포켓 연결) |
+| `default` | `DefaultStrategy` | 매수 완료 후 자동 할당되는 기본 전략 |
+
+---
+
+## 테스트
+
+```bash
+# 전체 유닛 테스트 (53개)
+python -m unittest discover tests
+
+# 시나리오 검증 (ad-hoc, CI 미포함)
+python verify/verify_all_feature.py
+python verify/verify_buy_strategy.py
+```
+
+---
+
+## 로그
+
+일별 로테이션: `logs/coin-stratege.log` (30일 보관)
+
+---
+
+## MQTT 없이 실행 (제한적 동작)
+
+현재 버전은 **MQTT 브로커가 필수**입니다. 브로커 없이 시작하면 메시징 초기화 오류가 발생합니다.
+로컬 테스트용 MQTT 브로커 설치:
+
+```bash
+# macOS
+brew install mosquitto && brew services start mosquitto
+
+# Ubuntu/Debian
+sudo apt install mosquitto && sudo systemctl start mosquitto
+```
+
+`default.json`의 `messaging.mqtt.host`를 `"127.0.0.1"`로 설정하면 로컬 브로커에 연결됩니다.
