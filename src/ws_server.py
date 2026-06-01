@@ -55,6 +55,13 @@ def create_app(state_store, token: Optional[str], web_dir: str) -> FastAPI:
         except WebSocketDisconnect:
             pass
 
+    @app.get("/api/info")
+    async def api_info():
+        return {
+            "mcp_url": f"http://{_mcp_host}:{_mcp_port}/mcp",
+            "tools": ["status", "account", "buy", "sell", "cancel", "pockets", "orders", "strategy"],
+        }
+
     if os.path.isdir(web_dir):
         app.mount("/", StaticFiles(directory=web_dir, html=True), name="static")
 
@@ -80,8 +87,10 @@ def on_state_event(event_type: str, payload: dict) -> None:
         asyncio.run_coroutine_threadsafe(_broadcast(event_type, payload), _loop)
 
 
-# Module-level token (set before clients connect)
+# Module-level token and MCP info (set before clients connect)
 _required_token: Optional[str] = None
+_mcp_host: str = "127.0.0.1"
+_mcp_port: int = 8000
 
 
 def start_ws_server(
@@ -90,9 +99,13 @@ def start_ws_server(
     port: int = 8765,
     token: Optional[str] = None,
     web_dir: str = "web",
+    mcp_host: str = "127.0.0.1",
+    mcp_port: int = 8000,
 ) -> None:
-    global _loop, _required_token
+    global _loop, _required_token, _mcp_host, _mcp_port
     _required_token = token
+    _mcp_host = mcp_host
+    _mcp_port = mcp_port
 
     app = create_app(state_store, token, web_dir)
     state_store.subscribe(on_state_event)

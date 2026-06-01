@@ -86,6 +86,11 @@ def execute_command(topic: str, data: dict, context: CommandExecutionContext) ->
     return router.execute(topic=topic, data=data)
 
 
-if __name__ == "__main__":
-    # Run the server using stdio
+def run_mcp(host: str = "127.0.0.1", port: int = 8000) -> None:
+    mcp.settings.host = host
+    mcp.settings.port = port
     mcp.run(transport='streamable-http')
+
+
+if __name__ == "__main__":
+    run_mcp()

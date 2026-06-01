@@ -90,23 +90,34 @@ def main():
     try:
         from src.ws_server import start_ws_server
         dash_cfg = config.get("dashboard", {})
+        _host = dash_cfg.get("host", "127.0.0.1")
+        _port = dash_cfg.get("port", 8765)
+        _token = dash_cfg.get("token") or os.environ.get("DASHBOARD_TOKEN") or ""
         start_ws_server(
             state_store=manager.dashboard._state_store,
-            host=dash_cfg.get("host", "127.0.0.1"),
-            port=dash_cfg.get("port", 8765),
-            token=dash_cfg.get("token") or os.environ.get("DASHBOARD_TOKEN"),
+            host=_host,
+            port=_port,
+            token=_token or None,
+            mcp_host=config.get("mcp", {}).get("host", "127.0.0.1"),
+            mcp_port=config.get("mcp", {}).get("port", 8000),
         )
+        _url = f"http://{_host}:{_port}"
+        if _token:
+            _url += f"?token={_token}"
+        print(f"\n  Dashboard → {_url}\n", flush=True)
     except Exception as e:
         logger.warning(f"WebSocket server failed to start: {e}")
     # ---------------------------------
 
     # --- MCP Integration ---
+    mcp_cfg = config.get("mcp", {})
+    mcp_host = mcp_cfg.get("host", "127.0.0.1")
+    mcp_port = mcp_cfg.get("port", 8000)
     try:
-        from project_mcp.mymcp import mcp, initialize_command_context
+        from project_mcp.mymcp import initialize_command_context, run_mcp
         from project_mcp.tools.context import CommandExecutionContext
         import threading
-        
-        # Initialize Context for MCP Tools
+
         ctx = CommandExecutionContext(
             account_manager=manager.account_manager,
             pocket_manager=manager.pocket_manager,
@@ -117,22 +128,17 @@ def main():
             upbit_websocket=manager.upbit_websocket,
         )
         initialize_command_context(ctx)
-        
-        # Start MCP Server (SSE) in separate thread
+
         def run_mcp_server():
-            logger.info("Starting MCP Server (SSE Mode)...")
-            # FastMCP uses uvicorn.run internally for SSE?
-            # mcp.run(transport='sse') might block.
             try:
-                # Assuming 'sse' transport is supported by mcp library in use
-                mcp.run(transport='streamable-http') 
+                run_mcp(host=mcp_host, port=mcp_port)
             except Exception as e:
                 logger.error(f"MCP Server Failed: {e}")
-        
+
         mcp_thread = threading.Thread(target=run_mcp_server, daemon=True)
         mcp_thread.start()
-        logger.info("MCP Server Thread Started")
-        
+        print(f"  MCP Server → http://{mcp_host}:{mcp_port}/mcp\n", flush=True)
+
     except ImportError:
         logger.warning("MCP modules not found. Skipping MCP server startup.")
     except Exception as e:

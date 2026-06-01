@@ -1,0 +1,5098 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "5b49a528c0994416cbd79b6eec81b91efcdd6d16",
+  "generatedAt": "2026-06-01T01:30:10.591Z",
+  "files": {
+    "account/dbupbit.py": {
+      "filePath": "account/dbupbit.py",
+      "contentHash": "f3a46a9dcc65b61abee9dbeb9334cc0b3eb8cfef7eeb1868b18db7321e9b3d37",
+      "functions": [],
+      "classes": [
+        {
+          "name": "DBTradeManager",
+          "methods": [
+            "__init__",
+            "init",
+            "_orderDTO_to_order",
+            "_create_my_order_model",
+            "synchronize_locked_balances",
+            "get_fee_rate",
+            "get_balance",
+            "get_balances",
+            "add_balance",
+            "sub_balance",
+            "lock_asset",
+            "unlock_asset",
+            "create_order",
+            "get_order",
+            "get_open_orders",
+            "cancel_order",
+            "process_order_complete",
+            "check_and_execute_orders"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 551
+        }
+      ],
+      "imports": [
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Optional",
+            "Any",
+            "Callable",
+            "Dict"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "account.dtos",
+          "specifiers": [
+            "AssetDTO",
+            "OrderDTO"
+          ]
+        },
+        {
+          "source": "account.repositories",
+          "specifiers": [
+            "AssetRepository",
+            "OrderRepository"
+          ]
+        },
+        {
+          "source": "account.exceptions",
+          "specifiers": [
+            "InsufficientBalanceException",
+            "OrderNotFoundException"
+          ]
+        },
+        {
+          "source": "tools.ticker",
+          "specifiers": [
+            "Ticker"
+          ]
+        },
+        {
+          "source": "models.my_asset",
+          "specifiers": [
+            "MyAsset",
+            "AssetItem"
+          ]
+        },
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "models.orderInfo",
+          "specifiers": [
+            "OrderInfo"
+          ]
+        },
+        {
+          "source": "models.my_order",
+          "specifiers": [
+            "MyOrder"
+          ]
+        }
+      ],
+      "exports": [
+        "DBTradeManager"
+      ],
+      "totalLines": 573,
+      "hasStructuralAnalysis": true
+    },
+    "account/dtos.py": {
+      "filePath": "account/dtos.py",
+      "contentHash": "7306d3217ade0923628394576a4de8a993ec6f3dea5b7ace23dbd5be030bcdee",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AssetDTO",
+          "methods": [],
+          "properties": [
+            "currency",
+            "balance",
+            "locked",
+            "avg_buy_price",
+            "avg_buy_price_modified",
+            "unit_currency"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "OrderDTO",
+          "methods": [],
+          "properties": [
+            "uuid",
+            "side",
+            "ord_type",
+            "price",
+            "state",
+            "market",
+            "created_at",
+            "volume",
+            "remaining_volume",
+            "reserved_fee",
+            "remaining_fee",
+            "paid_fee",
+            "locked",
+            "executed_volume",
+            "trades_count",
+            "avg_price"
+          ],
+          "exported": true,
+          "lineCount": 19
+        }
+      ],
+      "imports": [
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel",
+            "Field",
+            "ConfigDict"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        }
+      ],
+      "exports": [
+        "AssetDTO",
+        "OrderDTO"
+      ],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    "account/exceptions.py": {
+      "filePath": "account/exceptions.py",
+      "contentHash": "910ccc99bb2afc8f62667d560e3e05e35ace1ac48def02e6aed433bb04a65bcc",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AccountException",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "InsufficientBalanceException",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "OrderNotFoundException",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "InvalidOrderStateException",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "AccountException",
+        "InsufficientBalanceException",
+        "OrderNotFoundException",
+        "InvalidOrderStateException"
+      ],
+      "totalLines": 16,
+      "hasStructuralAnalysis": true
+    },
+    "account/manager.py": {
+      "filePath": "account/manager.py",
+      "contentHash": "219a4e3f7b63527b7075062b74d75e7d33fa74f7fb78f61b4091a69a3fcbbf2f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AccountBase",
+          "methods": [
+            "__init__",
+            "get_balance",
+            "get_asset_balance",
+            "get_balances",
+            "buy_limit_order",
+            "buy_market_order",
+            "sell_market_order",
+            "sell_limit_order",
+            "get_order",
+            "cancel_order",
+            "on_order_complete",
+            "check_order",
+            "get_orders"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 49
+        },
+        {
+          "name": "AccountDBManager",
+          "methods": [
+            "__init__",
+            "init",
+            "get_balance",
+            "get_asset_balance",
+            "get_balances",
+            "get_orders",
+            "get_current_price",
+            "get_ohlcv",
+            "get_orderbook",
+            "sell_limit_order",
+            "buy_limit_order",
+            "buy_market_order",
+            "sell_market_order",
+            "get_order",
+            "cancel_order",
+            "on_order_complete",
+            "check_order"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 101
+        }
+      ],
+      "imports": [
+        {
+          "source": "sqlite3",
+          "specifiers": [
+            "sqlite3"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Optional",
+            "Any",
+            "Callable"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "account.dbupbit",
+          "specifiers": [
+            "DBTradeManager"
+          ]
+        },
+        {
+          "source": "account.dtos",
+          "specifiers": [
+            "OrderDTO"
+          ]
+        },
+        {
+          "source": "account.exceptions",
+          "specifiers": [
+            "InsufficientBalanceException"
+          ]
+        },
+        {
+          "source": "tools.ticker",
+          "specifiers": [
+            "Ticker"
+          ]
+        }
+      ],
+      "exports": [
+        "AccountBase",
+        "AccountDBManager"
+      ],
+      "totalLines": 171,
+      "hasStructuralAnalysis": true
+    },
+    "account/repositories.py": {
+      "filePath": "account/repositories.py",
+      "contentHash": "dc32e400525b20e621b3f6dd6351f13f2c7abe201a91aec669e354bd2b20593e",
+      "functions": [
+        {
+          "name": "adapt_decimal",
+          "params": [
+            "d"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "convert_decimal",
+          "params": [
+            "s"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "adapt_datetime",
+          "params": [
+            "val"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "convert_datetime",
+          "params": [
+            "val"
+          ],
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "classes": [
+        {
+          "name": "RepositoryBase",
+          "methods": [
+            "__init__",
+            "_get_connection"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "AssetRepository",
+          "methods": [
+            "init_db",
+            "save",
+            "get",
+            "get_all"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 59
+        },
+        {
+          "name": "OrderRepository",
+          "methods": [
+            "init_db",
+            "save",
+            "get",
+            "get_by_state",
+            "get_by_market_and_state",
+            "_map_row_to_dto"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 75
+        }
+      ],
+      "imports": [
+        {
+          "source": "sqlite3",
+          "specifiers": [
+            "sqlite3"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "contextlib"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Optional"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "account.dtos",
+          "specifiers": [
+            "AssetDTO",
+            "OrderDTO"
+          ]
+        },
+        {
+          "source": "account.exceptions",
+          "specifiers": [
+            "OrderNotFoundException"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        }
+      ],
+      "exports": [
+        "adapt_decimal",
+        "convert_decimal",
+        "adapt_datetime",
+        "convert_datetime",
+        "RepositoryBase",
+        "AssetRepository",
+        "OrderRepository"
+      ],
+      "totalLines": 184,
+      "hasStructuralAnalysis": true
+    },
+    "app.py": {
+      "filePath": "app.py",
+      "contentHash": "dc768e5bc3edad2f247ef51aa671d01eb2cac75df0438d29bf3add38b8643a9d",
+      "functions": [
+        {
+          "name": "setup_logging",
+          "params": [
+            "console"
+          ],
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "load_config",
+          "params": [
+            "file_path"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": true,
+          "lineCount": 94
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "traceback",
+          "specifiers": [
+            "traceback"
+          ]
+        },
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "dotenv",
+          "specifiers": [
+            "load_dotenv"
+          ]
+        },
+        {
+          "source": "src.main",
+          "specifiers": [
+            "Manager"
+          ]
+        },
+        {
+          "source": "logging.handlers",
+          "specifiers": [
+            "logging.handlers"
+          ]
+        }
+      ],
+      "exports": [
+        "setup_logging",
+        "load_config",
+        "main"
+      ],
+      "totalLines": 162,
+      "hasStructuralAnalysis": true
+    },
+    "messaging/adapters/mqtt_adapter.py": {
+      "filePath": "messaging/adapters/mqtt_adapter.py",
+      "contentHash": "8b7e7e173baaeab79fec7e45228a305a015678c6814fa440882b82a6dc52a4ab",
+      "functions": [],
+      "classes": [
+        {
+          "name": "MqttAdapter",
+          "methods": [
+            "__init__",
+            "_on_connect",
+            "_on_disconnect",
+            "_on_message",
+            "_topic_matches",
+            "connect",
+            "disconnect",
+            "subscribe",
+            "unsubscribe",
+            "publish"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 122
+        }
+      ],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Callable",
+            "Any",
+            "Dict",
+            "List"
+          ]
+        },
+        {
+          "source": "paho.mqtt.client",
+          "specifiers": [
+            "mqtt"
+          ]
+        },
+        {
+          "source": "paho.mqtt.enums",
+          "specifiers": [
+            "CallbackAPIVersion"
+          ]
+        },
+        {
+          "source": "..interface",
+          "specifiers": [
+            "MessagingClient"
+          ]
+        }
+      ],
+      "exports": [
+        "MqttAdapter"
+      ],
+      "totalLines": 133,
+      "hasStructuralAnalysis": true
+    },
+    "messaging/adapters/redis_adapter.py": {
+      "filePath": "messaging/adapters/redis_adapter.py",
+      "contentHash": "b05d467b290dadae7769bd2b6a0146f01a8bec8e1848ff16430115476c6070e2",
+      "functions": [],
+      "classes": [
+        {
+          "name": "RedisAdapter",
+          "methods": [
+            "__init__",
+            "connect",
+            "disconnect",
+            "subscribe",
+            "unsubscribe",
+            "publish"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 30
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Callable",
+            "Any",
+            "Dict"
+          ]
+        },
+        {
+          "source": "..interface",
+          "specifiers": [
+            "MessagingClient"
+          ]
+        }
+      ],
+      "exports": [
+        "RedisAdapter"
+      ],
+      "totalLines": 37,
+      "hasStructuralAnalysis": true
+    },
+    "messaging/adapters/socket_adapter.py": {
+      "filePath": "messaging/adapters/socket_adapter.py",
+      "contentHash": "3ae8be20460112110921b0ab04d4e8538dba9856b80b0188c2911ec9aea973ac",
+      "functions": [],
+      "classes": [
+        {
+          "name": "LocalSocketAdapter",
+          "methods": [
+            "__init__",
+            "connect",
+            "disconnect",
+            "_listen_loop",
+            "_process_message",
+            "_topic_matches",
+            "subscribe",
+            "unsubscribe",
+            "publish",
+            "_send"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 150
+        }
+      ],
+      "imports": [
+        {
+          "source": "socket",
+          "specifiers": [
+            "socket"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Callable",
+            "Dict",
+            "Any",
+            "Optional"
+          ]
+        },
+        {
+          "source": "..interface",
+          "specifiers": [
+            "MessagingClient"
+          ]
+        }
+      ],
+      "exports": [
+        "LocalSocketAdapter"
+      ],
+      "totalLines": 161,
+      "hasStructuralAnalysis": true
+    },
+    "messaging/factory.py": {
+      "filePath": "messaging/factory.py",
+      "contentHash": "89b30ac0aaa780d084d8da998cfbc9cf6b17e15e1c5a4d865f3c6dfdc97fc369",
+      "functions": [],
+      "classes": [
+        {
+          "name": "MessagingFactory",
+          "methods": [
+            "create_client"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 40
+        }
+      ],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any"
+          ]
+        },
+        {
+          "source": ".interface",
+          "specifiers": [
+            "MessagingClient"
+          ]
+        },
+        {
+          "source": ".adapters.mqtt_adapter",
+          "specifiers": [
+            "MqttAdapter"
+          ]
+        },
+        {
+          "source": ".adapters.redis_adapter",
+          "specifiers": [
+            "RedisAdapter"
+          ]
+        },
+        {
+          "source": ".adapters.socket_adapter",
+          "specifiers": [
+            "LocalSocketAdapter"
+          ]
+        }
+      ],
+      "exports": [
+        "MessagingFactory"
+      ],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "messaging/interface.py": {
+      "filePath": "messaging/interface.py",
+      "contentHash": "89a283204ee5c7ceff7f1e384cbeb8db25a6812da4e0c038ffd182e5cffd44e6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "MessagingClient",
+          "methods": [
+            "connect",
+            "disconnect",
+            "subscribe",
+            "unsubscribe",
+            "publish"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 46
+        }
+      ],
+      "imports": [
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Callable",
+            "Any",
+            "Dict"
+          ]
+        }
+      ],
+      "exports": [
+        "MessagingClient"
+      ],
+      "totalLines": 50,
+      "hasStructuralAnalysis": true
+    },
+    "models/my_asset.py": {
+      "filePath": "models/my_asset.py",
+      "contentHash": "4c98fb0180bde22faa20bd93e4851d30d10c979f6265a9efdf9c1e03769f1764",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AssetItem",
+          "methods": [],
+          "properties": [
+            "currency",
+            "balance",
+            "locked"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "MyAsset",
+          "methods": [],
+          "properties": [
+            "type",
+            "asset_uuid",
+            "assets",
+            "asset_timestamp",
+            "timestamp",
+            "stream_type"
+          ],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "imports": [
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel",
+            "Field"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Optional"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid4"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        }
+      ],
+      "exports": [
+        "AssetItem",
+        "MyAsset"
+      ],
+      "totalLines": 22,
+      "hasStructuralAnalysis": true
+    },
+    "models/my_order.py": {
+      "filePath": "models/my_order.py",
+      "contentHash": "04046e41edeeb3bcc0636c07879654b5565d4567db4944f65c64b2c369ed07bb",
+      "functions": [],
+      "classes": [
+        {
+          "name": "MyOrder",
+          "methods": [],
+          "properties": [
+            "type",
+            "code",
+            "uuid",
+            "ask_bid",
+            "order_type",
+            "state",
+            "trade_uuid",
+            "price",
+            "avg_price",
+            "volume",
+            "remaining_volume",
+            "executed_volume",
+            "trades_count",
+            "reserved_fee",
+            "remaining_fee",
+            "paid_fee",
+            "locked",
+            "executed_funds",
+            "time_in_force",
+            "trade_fee",
+            "is_maker",
+            "identifier",
+            "smp_type",
+            "prevented_volume",
+            "prevented_locked",
+            "trade_timestamp",
+            "order_timestamp",
+            "timestamp",
+            "stream_type"
+          ],
+          "exported": true,
+          "lineCount": 33
+        }
+      ],
+      "imports": [
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "MyOrder"
+      ],
+      "totalLines": 38,
+      "hasStructuralAnalysis": true
+    },
+    "models/orderInfo.py": {
+      "filePath": "models/orderInfo.py",
+      "contentHash": "676f3595b6c7763dc41ebcd6c5aab15e2fa3de8377b74a99e96d1e78c9f01969",
+      "functions": [],
+      "classes": [
+        {
+          "name": "OrderInfo",
+          "methods": [],
+          "properties": [
+            "uuid",
+            "side",
+            "ord_type",
+            "price",
+            "state",
+            "market",
+            "created_at",
+            "volume",
+            "remaining_volume",
+            "reserved_fee",
+            "remaining_fee",
+            "paid_fee",
+            "locked",
+            "executed_volume",
+            "trades_count"
+          ],
+          "exported": true,
+          "lineCount": 20
+        }
+      ],
+      "imports": [
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel",
+            "Field"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "OrderInfo"
+      ],
+      "totalLines": 25,
+      "hasStructuralAnalysis": true
+    },
+    "models/pocket.py": {
+      "filePath": "models/pocket.py",
+      "contentHash": "351a6e20687e41cd4d94b6d6672112018653c1ae0f762afd4f6121998a203a9c",
+      "functions": [],
+      "classes": [
+        {
+          "name": "PocketBase",
+          "methods": [],
+          "properties": [
+            "id",
+            "ticker",
+            "volume",
+            "entry_price",
+            "entry_time",
+            "config",
+            "order_id",
+            "close_order_id",
+            "highest_price",
+            "status",
+            "close_price",
+            "close_time",
+            "reason"
+          ],
+          "exported": true,
+          "lineCount": 20
+        }
+      ],
+      "imports": [
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "sqlite3",
+          "specifiers": [
+            "sqlite3"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel",
+            "Field"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Any",
+            "List"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        }
+      ],
+      "exports": [
+        "PocketBase"
+      ],
+      "totalLines": 32,
+      "hasStructuralAnalysis": true
+    },
+    "models/ticker.py": {
+      "filePath": "models/ticker.py",
+      "contentHash": "46f9cd7530a9a06b931b1f9acefde68384b6f4ddd645a15efd7b04d4e8831dff",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TickerMsg",
+          "methods": [],
+          "properties": [
+            "type",
+            "code",
+            "opening_price",
+            "high_price",
+            "low_price",
+            "trade_price",
+            "prev_closing_price",
+            "acc_trade_price",
+            "change",
+            "change_price",
+            "signed_change_price",
+            "change_rate",
+            "signed_change_rate",
+            "ask_bid",
+            "trade_volume",
+            "acc_trade_volume",
+            "trade_date",
+            "trade_time",
+            "trade_timestamp",
+            "acc_ask_volume",
+            "acc_bid_volume",
+            "highest_52_week_price",
+            "highest_52_week_date",
+            "lowest_52_week_price",
+            "lowest_52_week_date",
+            "market_state",
+            "is_trading_suspended",
+            "delisting_date",
+            "market_warning",
+            "timestamp",
+            "acc_trade_price_24h",
+            "acc_trade_volume_24h",
+            "stream_type"
+          ],
+          "exported": true,
+          "lineCount": 37
+        }
+      ],
+      "imports": [
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "TickerMsg"
+      ],
+      "totalLines": 42,
+      "hasStructuralAnalysis": true
+    },
+    "models/trade.py": {
+      "filePath": "models/trade.py",
+      "contentHash": "aec1daae74c7128d9bf372f4797cb816a650ff7e363e637d45d4b00b39c753ef",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Trade",
+          "methods": [],
+          "properties": [
+            "type",
+            "code",
+            "timestamp",
+            "trade_date",
+            "trade_time",
+            "trade_timestamp",
+            "trade_price",
+            "trade_volume",
+            "ask_bid",
+            "prev_closing_price",
+            "change",
+            "change_price",
+            "sequential_id",
+            "best_ask_price",
+            "best_ask_size",
+            "best_bid_price",
+            "best_bid_size",
+            "stream_type"
+          ],
+          "exported": true,
+          "lineCount": 22
+        }
+      ],
+      "imports": [
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "Trade"
+      ],
+      "totalLines": 27,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/base.py": {
+      "filePath": "project_mcp/base.py",
+      "contentHash": "575f2d5bf03f9bfc78825206d947106e41daa0ee1ae6771788234087aab7bb73",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Tool",
+          "methods": [
+            "identifier",
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "Resource",
+          "methods": [
+            "identifier",
+            "get"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "Prompt",
+          "methods": [
+            "identifier",
+            "get"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "imports": [
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "Tool",
+        "Resource",
+        "Prompt"
+      ],
+      "totalLines": 32,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/mymcp.py": {
+      "filePath": "project_mcp/mymcp.py",
+      "contentHash": "4018e716b0e4342af03d76ef04bbaa956d6f406df3349b8dabb9e145112b86f2",
+      "functions": [
+        {
+          "name": "discover_components",
+          "params": [
+            "package",
+            "base_class"
+          ],
+          "returnType": "Generator[Tuple[str, Type], None, None]",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "initialize_command_context",
+          "params": [
+            "context"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "execute_command",
+          "params": [
+            "topic",
+            "data",
+            "context"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "run_mcp",
+          "params": [
+            "host",
+            "port"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pkgutil",
+          "specifiers": [
+            "pkgutil"
+          ]
+        },
+        {
+          "source": "inspect",
+          "specifiers": [
+            "inspect"
+          ]
+        },
+        {
+          "source": "importlib",
+          "specifiers": [
+            "importlib"
+          ]
+        },
+        {
+          "source": "mcp.server.fastmcp",
+          "specifiers": [
+            "FastMCP"
+          ]
+        },
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool",
+            "Resource",
+            "Prompt"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.context",
+          "specifiers": [
+            "CommandExecutionContext",
+            "set_execution_context"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.registry",
+          "specifiers": [
+            "CommandToolRegistry"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.command_actions",
+          "specifiers": [
+            "CommandActionTool"
+          ]
+        },
+        {
+          "source": "project_mcp.tools",
+          "specifiers": [
+            "project_mcp.tools"
+          ]
+        },
+        {
+          "source": "project_mcp.resources",
+          "specifiers": [
+            "project_mcp.resources"
+          ]
+        },
+        {
+          "source": "project_mcp.prompts",
+          "specifiers": [
+            "project_mcp.prompts"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Generator",
+            "Any",
+            "Tuple",
+            "Type"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.command_router",
+          "specifiers": [
+            "CommandRouterTool"
+          ]
+        }
+      ],
+      "exports": [
+        "discover_components",
+        "initialize_command_context",
+        "execute_command",
+        "run_mcp"
+      ],
+      "totalLines": 95,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/prompts/pocket_prompt.py": {
+      "filePath": "project_mcp/prompts/pocket_prompt.py",
+      "contentHash": "369b94f38084e36fcd2f32e8e76c85a36fb22e04c11f6e97c90e904ebea10d9b",
+      "functions": [],
+      "classes": [
+        {
+          "name": "PocketManagementPrompt",
+          "methods": [
+            "identifier",
+            "get"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 29
+        }
+      ],
+      "imports": [
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "PocketManagementPrompt"
+      ],
+      "totalLines": 32,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/prompts/review.py": {
+      "filePath": "project_mcp/prompts/review.py",
+      "contentHash": "3291f98f4266c14b5fc509de5ec371ac199b1cd253e8cd604a50acad05a6f2ac",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ReviewPrompt",
+          "methods": [
+            "get"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "imports": [
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "ReviewPrompt"
+      ],
+      "totalLines": 7,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/prompts/strategy_prompt.py": {
+      "filePath": "project_mcp/prompts/strategy_prompt.py",
+      "contentHash": "e8a065c0258da62454ed2c3f3835f8ab7fe1635c057fc81dd99dc84bb27572b6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "StrategyManagementPrompt",
+          "methods": [
+            "identifier",
+            "get"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 30
+        }
+      ],
+      "imports": [
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Prompt"
+          ]
+        }
+      ],
+      "exports": [
+        "StrategyManagementPrompt"
+      ],
+      "totalLines": 33,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/resources/greeting.py": {
+      "filePath": "project_mcp/resources/greeting.py",
+      "contentHash": "747a795607ba3a306fe45fe8003453ac5420362f8ee07371fd04cfeeb3e1b91a",
+      "functions": [],
+      "classes": [
+        {
+          "name": "GreetingResource",
+          "methods": [
+            "get"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "imports": [
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Resource"
+          ]
+        }
+      ],
+      "exports": [
+        "GreetingResource"
+      ],
+      "totalLines": 7,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/__init__.py": {
+      "filePath": "project_mcp/tools/__init__.py",
+      "contentHash": "12fc64cdf30f8b6c66f7b3d1b700cd3bf2245ee2b5d92bacddd35e4c1a314114",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "project_mcp.tools.context",
+          "specifiers": [
+            "CommandExecutionContext",
+            "get_execution_context",
+            "set_execution_context"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.command_actions",
+          "specifiers": [
+            "CommandActionTool",
+            "StatusCommandTool",
+            "AccountCommandTool",
+            "BuyCommandTool",
+            "SellCommandTool",
+            "CancelCommandTool",
+            "PocketsCommandTool",
+            "OrdersCommandTool",
+            "StrategyCommandTool"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/add.py": {
+      "filePath": "project_mcp/tools/add.py",
+      "contentHash": "aed26382bf210975ea88837d7db86f2321c8164d26eb3a15c7be7d0337447582",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AddTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "imports": [
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool"
+          ]
+        }
+      ],
+      "exports": [
+        "AddTool"
+      ],
+      "totalLines": 7,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/command_actions.py": {
+      "filePath": "project_mcp/tools/command_actions.py",
+      "contentHash": "586375918acde7e7ee1a4accb8ce50405b7f0df37ca1aca8819dd11b4a9a8a6f",
+      "functions": [
+        {
+          "name": "_to_decimal",
+          "params": [
+            "value",
+            "default"
+          ],
+          "returnType": "Decimal",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_log_and_fetch_price",
+          "params": [
+            "ticker",
+            "op"
+          ],
+          "returnType": "Optional[Decimal]",
+          "exported": true,
+          "lineCount": 11
+        }
+      ],
+      "classes": [
+        {
+          "name": "CommandActionTool",
+          "methods": [
+            "identifier"
+          ],
+          "properties": [
+            "action"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "StatusCommandTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "AccountCommandTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "BuyCommandTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 56
+        },
+        {
+          "name": "SellCommandTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 72
+        },
+        {
+          "name": "CancelCommandTool",
+          "methods": [
+            "execute",
+            "_format_result",
+            "_resolve_partial_uuid"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 73
+        },
+        {
+          "name": "PocketsCommandTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "OrdersCommandTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "StrategyCommandTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 126
+        }
+      ],
+      "imports": [
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "traceback",
+          "specifiers": [
+            "traceback"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "List",
+            "Optional"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.context",
+          "specifiers": [
+            "get_execution_context"
+          ]
+        },
+        {
+          "source": "tools.converter",
+          "specifiers": [
+            "Decimal2float"
+          ]
+        },
+        {
+          "source": "tools.ticker",
+          "specifiers": [
+            "Ticker"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "_to_decimal",
+        "_log_and_fetch_price",
+        "CommandActionTool",
+        "StatusCommandTool",
+        "AccountCommandTool",
+        "BuyCommandTool",
+        "SellCommandTool",
+        "CancelCommandTool",
+        "PocketsCommandTool",
+        "OrdersCommandTool",
+        "StrategyCommandTool"
+      ],
+      "totalLines": 470,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/command_router.py": {
+      "filePath": "project_mcp/tools/command_router.py",
+      "contentHash": "e88b6200499c6f6c8fff7cbe55c32f3dbe816c3c470adc71baee95dc788d3da8",
+      "functions": [],
+      "classes": [
+        {
+          "name": "CommandRouterTool",
+          "methods": [
+            "__init__",
+            "execute",
+            "_extract_uuid"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 32
+        }
+      ],
+      "imports": [
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict"
+          ]
+        },
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.context",
+          "specifiers": [
+            "get_execution_context"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.registry",
+          "specifiers": [
+            "CommandToolRegistry"
+          ]
+        }
+      ],
+      "exports": [
+        "CommandRouterTool"
+      ],
+      "totalLines": 43,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/commit.py": {
+      "filePath": "project_mcp/tools/commit.py",
+      "contentHash": "070da7e518787bb39c8b49ad49b57694567b5e61a491113342e38573a6f3384e",
+      "functions": [],
+      "classes": [
+        {
+          "name": "CommitTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "imports": [
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        }
+      ],
+      "exports": [
+        "CommitTool"
+      ],
+      "totalLines": 53,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/context.py": {
+      "filePath": "project_mcp/tools/context.py",
+      "contentHash": "1360e7c6b433b757d29ba2ccd770af81cdefd020754cac58acec63ab81f35bff",
+      "functions": [
+        {
+          "name": "set_execution_context",
+          "params": [
+            "context"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "get_execution_context",
+          "params": [],
+          "returnType": "CommandExecutionContext",
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [
+        {
+          "name": "CommandExecutionContext",
+          "methods": [],
+          "properties": [
+            "account_manager",
+            "pocket_manager",
+            "strategy_manager",
+            "messaging",
+            "dashboard",
+            "current_prices",
+            "upbit_websocket"
+          ],
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "CommandExecutionContext",
+        "set_execution_context",
+        "get_execution_context"
+      ],
+      "totalLines": 39,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/echo.py": {
+      "filePath": "project_mcp/tools/echo.py",
+      "contentHash": "6080575565c8da72d81e7fa37fda7ccc6bf2aa27238cccbc9da218dfbbe0741d",
+      "functions": [],
+      "classes": [
+        {
+          "name": "EchoTool",
+          "methods": [
+            "execute"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "imports": [
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool"
+          ]
+        }
+      ],
+      "exports": [
+        "EchoTool"
+      ],
+      "totalLines": 7,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/pocket_tool.py": {
+      "filePath": "project_mcp/tools/pocket_tool.py",
+      "contentHash": "761f578985370165f918fab77521b06e3c78b653e32d07cadb34a67e85751fb6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "PocketTool",
+          "methods": [
+            "identifier",
+            "execute",
+            "_create_pocket",
+            "_close_pocket",
+            "_list_pockets"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 95
+        }
+      ],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Optional",
+            "List"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.context",
+          "specifiers": [
+            "get_execution_context"
+          ]
+        }
+      ],
+      "exports": [
+        "PocketTool"
+      ],
+      "totalLines": 104,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/registry.py": {
+      "filePath": "project_mcp/tools/registry.py",
+      "contentHash": "ccd92db9d69115895493fbef9d3ae6741bfae2f673005396e7306b8715ef9870",
+      "functions": [],
+      "classes": [
+        {
+          "name": "CommandToolRegistry",
+          "methods": [
+            "register",
+            "get_registry"
+          ],
+          "properties": [
+            "_registry"
+          ],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict"
+          ]
+        },
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool"
+          ]
+        }
+      ],
+      "exports": [
+        "CommandToolRegistry"
+      ],
+      "totalLines": 18,
+      "hasStructuralAnalysis": true
+    },
+    "project_mcp/tools/strategy_tool.py": {
+      "filePath": "project_mcp/tools/strategy_tool.py",
+      "contentHash": "5ea5f0932bf9740ef1ec7ff2d9337ab34f8962b4f901f95dd6f7ae6f01608a32",
+      "functions": [],
+      "classes": [
+        {
+          "name": "StrategyTool",
+          "methods": [
+            "identifier",
+            "execute",
+            "_create_strategy",
+            "_delete_strategy",
+            "_list_strategies"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 79
+        }
+      ],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Optional",
+            "List"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "project_mcp.base",
+          "specifiers": [
+            "Tool"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.context",
+          "specifiers": [
+            "get_execution_context"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyConfig",
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "StrategyTool"
+      ],
+      "totalLines": 89,
+      "hasStructuralAnalysis": true
+    },
+    "src/current_price.py": {
+      "filePath": "src/current_price.py",
+      "contentHash": "80c3dac0cfbe6208fb852899ba6f5a6fc5f5f1554ce2b798223a4d99eb9a1d88",
+      "functions": [],
+      "classes": [
+        {
+          "name": "CurrentPrice",
+          "methods": [
+            "__init__",
+            "update",
+            "get",
+            "is_updated",
+            "get_all",
+            "print_all"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 49
+        }
+      ],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Tuple"
+          ]
+        },
+        {
+          "source": "tools.candle",
+          "specifiers": [
+            "Candle"
+          ]
+        }
+      ],
+      "exports": [
+        "CurrentPrice"
+      ],
+      "totalLines": 55,
+      "hasStructuralAnalysis": true
+    },
+    "src/dashboard.py": {
+      "filePath": "src/dashboard.py",
+      "contentHash": "61e193a9a35226d3b31bc4d0c0040c98e28bc4ee832802da622ed9ff6185a544",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Dashboard",
+          "methods": [
+            "__init__",
+            "start",
+            "stop",
+            "update",
+            "log",
+            "_process_item",
+            "_run_loop"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 69
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "queue",
+          "specifiers": [
+            "queue"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "traceback",
+          "specifiers": [
+            "traceback"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict"
+          ]
+        },
+        {
+          "source": "src.dashboard_state",
+          "specifiers": [
+            "DashboardStateStore"
+          ]
+        }
+      ],
+      "exports": [
+        "Dashboard"
+      ],
+      "totalLines": 87,
+      "hasStructuralAnalysis": true
+    },
+    "src/dashboard_state.py": {
+      "filePath": "src/dashboard_state.py",
+      "contentHash": "377de1611caaa71ba7a88af28742fd2ea30be17d3244ae2cf27705e276f830da",
+      "functions": [
+        {
+          "name": "_json_safe",
+          "params": [
+            "obj"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_ticker_code",
+          "params": [
+            "raw"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "classes": [
+        {
+          "name": "DashboardStateStore",
+          "methods": [
+            "__init__",
+            "apply_event",
+            "snapshot",
+            "subscribe",
+            "_update",
+            "_maybe_notify"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 149
+        }
+      ],
+      "imports": [
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Callable",
+            "Dict",
+            "List"
+          ]
+        }
+      ],
+      "exports": [
+        "_json_safe",
+        "_ticker_code",
+        "DashboardStateStore"
+      ],
+      "totalLines": 177,
+      "hasStructuralAnalysis": true
+    },
+    "src/main.py": {
+      "filePath": "src/main.py",
+      "contentHash": "4dccd03c0bd82b7f12e8ea3787cc5cf7eda9a03a70a37c9cbf5436412d981d4c",
+      "functions": [],
+      "classes": [
+        {
+          "name": "DecimalEncoder",
+          "methods": [
+            "default"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "Task",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "Manager",
+          "methods": [
+            "__init__",
+            "init_strategy",
+            "init_pockets",
+            "init_account",
+            "init",
+            "_run_scheduler_loop",
+            "run",
+            "stop",
+            "on_pocket_loaded",
+            "on_pocket_created",
+            "on_pocket_updated",
+            "on_pocket_deleted",
+            "on_strategy_created",
+            "on_strategy_signal",
+            "on_strategy_updated",
+            "on_strategy_deleted",
+            "on_ws_opened",
+            "on_ws_closed",
+            "on_ws_message",
+            "on_mqtt_message",
+            "on_task",
+            "on_signal_processing",
+            "process_command",
+            "on_order_created",
+            "on_order_updated",
+            "on_order_completed",
+            "on_order_deleted",
+            "on_my_order",
+            "on_asset_created",
+            "on_asset_updated",
+            "on_asset_deleted",
+            "on_my_asset",
+            "on_ticker",
+            "on_orderbook"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 896
+        }
+      ],
+      "imports": [
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "traceback",
+          "specifiers": [
+            "traceback"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Tuple",
+            "Any"
+          ]
+        },
+        {
+          "source": "dotenv",
+          "specifiers": [
+            "load_dotenv"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "queue",
+          "specifiers": [
+            "Queue",
+            "Empty"
+          ]
+        },
+        {
+          "source": "account.dbupbit",
+          "specifiers": [
+            "DBTradeManager"
+          ]
+        },
+        {
+          "source": "messaging.factory",
+          "specifiers": [
+            "MessagingFactory"
+          ]
+        },
+        {
+          "source": "messaging.interface",
+          "specifiers": [
+            "MessagingClient"
+          ]
+        },
+        {
+          "source": "models.trade",
+          "specifiers": [
+            "Trade"
+          ]
+        },
+        {
+          "source": "models.orderInfo",
+          "specifiers": [
+            "OrderInfo"
+          ]
+        },
+        {
+          "source": "models.my_asset",
+          "specifiers": [
+            "MyAsset"
+          ]
+        },
+        {
+          "source": "tools.ticker",
+          "specifiers": [
+            "Ticker"
+          ]
+        },
+        {
+          "source": "tools.converter",
+          "specifiers": [
+            "Decimal2float"
+          ]
+        },
+        {
+          "source": "tools.counter",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "tools.currency_print",
+          "specifiers": [
+            "Won"
+          ]
+        },
+        {
+          "source": "account.manager",
+          "specifiers": [
+            "AccountDBManager"
+          ]
+        },
+        {
+          "source": "account.exceptions",
+          "specifiers": [
+            "InsufficientBalanceException"
+          ]
+        },
+        {
+          "source": "src.dashboard",
+          "specifiers": [
+            "Dashboard"
+          ]
+        },
+        {
+          "source": "src.pocket_manager",
+          "specifiers": [
+            "Pocket",
+            "PocketManager",
+            "PocketObserver",
+            "PocketStateType"
+          ]
+        },
+        {
+          "source": "src.current_price",
+          "specifiers": [
+            "CurrentPrice"
+          ]
+        },
+        {
+          "source": "upbit.upbit_websocket",
+          "specifiers": [
+            "UpbitWebSocket",
+            "WebsocketObserver"
+          ]
+        },
+        {
+          "source": "strategy.manager",
+          "specifiers": [
+            "StrategyManager",
+            "StrategyObserver",
+            "StrategyBase"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyContext",
+            "StrategyConfig",
+            "StrategyDTO",
+            "StrategyStatus",
+            "Signal",
+            "SignalType",
+            "StrategyType"
+          ]
+        },
+        {
+          "source": "strategy.buy_strategy",
+          "specifiers": [
+            "ScalpingStrategy",
+            "ScalpingStrategyConfig"
+          ]
+        },
+        {
+          "source": "strategy.default_strategy",
+          "specifiers": [
+            "DefaultStrategy",
+            "DefaultStrategyConfig"
+          ]
+        },
+        {
+          "source": "strategy.volume_strategy",
+          "specifiers": [
+            "VolumeSpikeStrategy",
+            "VolumeSpikeStrategyConfig"
+          ]
+        },
+        {
+          "source": "strategy.anomaly_strategy",
+          "specifiers": [
+            "AnomalyStrategy",
+            "AnomalyStrategyConfig"
+          ]
+        },
+        {
+          "source": "strategy.dl_anomaly_strategy",
+          "specifiers": [
+            "DeepAnomalyStrategy",
+            "DeepAnomalyStrategyConfig"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "project_mcp.mymcp",
+          "specifiers": [
+            "mymcp"
+          ]
+        },
+        {
+          "source": "project_mcp.tools.context",
+          "specifiers": [
+            "CommandExecutionContext"
+          ]
+        }
+      ],
+      "exports": [
+        "DecimalEncoder",
+        "Task",
+        "Manager"
+      ],
+      "totalLines": 997,
+      "hasStructuralAnalysis": true
+    },
+    "src/pocket_manager.py": {
+      "filePath": "src/pocket_manager.py",
+      "contentHash": "202c14b7adba2e7f120992db5c0646c54bd3996aa41a11eaea57aa93273b7933",
+      "functions": [],
+      "classes": [
+        {
+          "name": "PocketStateType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "Pocket",
+          "methods": [
+            "is_closed"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "PocketObserver",
+          "methods": [
+            "on_pocket_loaded",
+            "on_pocket_created",
+            "on_pocket_updated",
+            "on_pocket_deleted"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "PocketManager",
+          "methods": [
+            "__init__",
+            "init",
+            "create_pocket",
+            "delete_pocket",
+            "set_reason",
+            "close_pocket",
+            "closed_pocket",
+            "close_pockets_by_ticker",
+            "get_pockets",
+            "get_pocket",
+            "get_pocket_by_order_id",
+            "archive_pocket"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 175
+        }
+      ],
+      "imports": [
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "contextlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "sqlite3",
+          "specifiers": [
+            "sqlite3"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "List",
+            "Dict",
+            "Any",
+            "Callable"
+          ]
+        },
+        {
+          "source": "models.pocket",
+          "specifiers": [
+            "PocketBase"
+          ]
+        },
+        {
+          "source": "strategy.base",
+          "specifiers": [
+            "Signal"
+          ]
+        },
+        {
+          "source": "tools.db_interface",
+          "specifiers": [
+            "DBInterface"
+          ]
+        },
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "enum",
+          "specifiers": [
+            "Enum"
+          ]
+        }
+      ],
+      "exports": [
+        "PocketStateType",
+        "Pocket",
+        "PocketObserver",
+        "PocketManager"
+      ],
+      "totalLines": 234,
+      "hasStructuralAnalysis": true
+    },
+    "src/tui_consumer.py": {
+      "filePath": "src/tui_consumer.py",
+      "contentHash": "7f75216452fb7ee20b49b9e23636a8950e1f949ba547b1d89e073aeb87437f45",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Spinner",
+          "methods": [
+            "__init__",
+            "next",
+            "count",
+            "__call__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "Widget",
+          "methods": [
+            "__init__",
+            "add_child",
+            "update",
+            "render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "LogWidget",
+          "methods": [
+            "__init__",
+            "update",
+            "render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "StrategyWidget",
+          "methods": [
+            "__init__",
+            "update",
+            "render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "PocketWidget",
+          "methods": [
+            "__init__",
+            "update",
+            "render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "AssetWidget",
+          "methods": [
+            "__init__",
+            "update",
+            "won_total",
+            "render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "OrderWidget",
+          "methods": [
+            "__init__",
+            "update",
+            "render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "TickerWidget",
+          "methods": [
+            "__init__",
+            "update",
+            "render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 45
+        },
+        {
+          "name": "TUIConsumer",
+          "methods": [
+            "__init__",
+            "start",
+            "stop",
+            "_on_event",
+            "_check_and_remove_ticker",
+            "_create_widget",
+            "_total_balance",
+            "_run_loop",
+            "_render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 200
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Optional"
+          ]
+        },
+        {
+          "source": "tools.candle",
+          "specifiers": [
+            "Candle"
+          ]
+        },
+        {
+          "source": "tools.ticker",
+          "specifiers": [
+            "Ticker"
+          ]
+        },
+        {
+          "source": "tools.currency_print",
+          "specifiers": [
+            "WonColor",
+            "RateColor",
+            "Won",
+            "WonR",
+            "WonG",
+            "WonY",
+            "WonB"
+          ]
+        }
+      ],
+      "exports": [
+        "Spinner",
+        "Widget",
+        "LogWidget",
+        "StrategyWidget",
+        "PocketWidget",
+        "AssetWidget",
+        "OrderWidget",
+        "TickerWidget",
+        "TUIConsumer"
+      ],
+      "totalLines": 449,
+      "hasStructuralAnalysis": true
+    },
+    "src/ws_server.py": {
+      "filePath": "src/ws_server.py",
+      "contentHash": "01f512ad63c34e0a124bb988f6df0b3b645a0525b7ef1e87bc118c33937d7cda",
+      "functions": [
+        {
+          "name": "_check_token",
+          "params": [
+            "provided",
+            "required"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "create_app",
+          "params": [
+            "state_store",
+            "token",
+            "web_dir"
+          ],
+          "returnType": "FastAPI",
+          "exported": true,
+          "lineCount": 43
+        },
+        {
+          "name": "_broadcast",
+          "params": [
+            "event_type",
+            "payload"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "on_state_event",
+          "params": [
+            "event_type",
+            "payload"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "start_ws_server",
+          "params": [
+            "state_store",
+            "host",
+            "port",
+            "token",
+            "web_dir",
+            "mcp_host",
+            "mcp_port"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 36
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Set"
+          ]
+        },
+        {
+          "source": "uvicorn",
+          "specifiers": [
+            "uvicorn"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "FastAPI",
+            "WebSocket",
+            "WebSocketDisconnect",
+            "Query"
+          ]
+        },
+        {
+          "source": "fastapi.staticfiles",
+          "specifiers": [
+            "StaticFiles"
+          ]
+        }
+      ],
+      "exports": [
+        "_check_token",
+        "create_app",
+        "_broadcast",
+        "on_state_event",
+        "start_ws_server"
+      ],
+      "totalLines": 132,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/anomaly_strategy.py": {
+      "filePath": "strategy/anomaly_strategy.py",
+      "contentHash": "31c83c2864f3275b8806f85e1ea8ef0c205f411c933b2792142ae65f13b488e3",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AnomalyStrategyConfig",
+          "methods": [],
+          "properties": [
+            "name",
+            "type",
+            "execution_interval",
+            "period",
+            "z_score_threshold",
+            "buy_amount",
+            "mode"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "AnomalyStrategy",
+          "methods": [
+            "__init__",
+            "on_tick",
+            "on_schedule"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 107
+        }
+      ],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Dict",
+            "Any",
+            "List"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "pandas",
+          "specifiers": [
+            "pd"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "strategy.base",
+          "specifiers": [
+            "StrategyBase"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyContext",
+            "StrategyConfig",
+            "Signal",
+            "SignalType",
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "AnomalyStrategyConfig",
+        "AnomalyStrategy"
+      ],
+      "totalLines": 134,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/base.py": {
+      "filePath": "strategy/base.py",
+      "contentHash": "42b6faf63567f9abd99ec04ba73e71df5853ac57dce7f15ce7ef08a0d4ef8e81",
+      "functions": [],
+      "classes": [
+        {
+          "name": "StrategyBase",
+          "methods": [
+            "__init__",
+            "on_tick",
+            "get_state",
+            "restore_state",
+            "on_schedule",
+            "on_orderbook",
+            "summary",
+            "emit_signal"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 67
+        }
+      ],
+      "imports": [
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any",
+            "Optional"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyContext",
+            "StrategyConfig",
+            "Signal"
+          ]
+        }
+      ],
+      "exports": [
+        "StrategyBase"
+      ],
+      "totalLines": 73,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/buy_strategy.py": {
+      "filePath": "strategy/buy_strategy.py",
+      "contentHash": "71fa2110d51b1ba7f9da1c8f5e71c8a9a42624a6c7713096d37682b2651577ad",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ScalpingStrategyConfig",
+          "methods": [],
+          "properties": [
+            "name",
+            "type",
+            "buy_amount",
+            "take_profit_pct",
+            "stop_loss_pct",
+            "min_signal_strength",
+            "strong_signal_threshold",
+            "execution_interval",
+            "ma_short_period",
+            "ma_long_period",
+            "rsi_period",
+            "rsi_oversold",
+            "bb_period",
+            "bb_std",
+            "volume_surge_multiplier",
+            "min_buy_pressure"
+          ],
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "ScalpingStrategy",
+          "methods": [
+            "__init__",
+            "_get_market_data",
+            "_get_orderbook_pressure",
+            "_calculate_indicators",
+            "_analyze_signal",
+            "on_tick",
+            "on_schedule",
+            "get_state",
+            "restore_state"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 257
+        }
+      ],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Dict",
+            "Any",
+            "List"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "traceback",
+          "specifiers": [
+            "traceback"
+          ]
+        },
+        {
+          "source": "pandas",
+          "specifiers": [
+            "pd"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "tools.ticker",
+          "specifiers": [
+            "Ticker"
+          ]
+        },
+        {
+          "source": "strategy.base",
+          "specifiers": [
+            "StrategyBase"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyContext",
+            "StrategyConfig",
+            "Signal",
+            "SignalType",
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "ScalpingStrategyConfig",
+        "ScalpingStrategy"
+      ],
+      "totalLines": 303,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/default_strategy.py": {
+      "filePath": "strategy/default_strategy.py",
+      "contentHash": "42fcb72f9dc86b91c37c8ff2e3839591e615856ecaf3c0fcee7682ef4c99f414",
+      "functions": [],
+      "classes": [
+        {
+          "name": "DefaultStrategyConfig",
+          "methods": [],
+          "properties": [
+            "name",
+            "type",
+            "entry_price",
+            "trail_percent",
+            "activation_percent",
+            "stop_loss_percent",
+            "take_profit_percent",
+            "take_profit_partial",
+            "take_profit_ratio"
+          ],
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "DefaultStrategy",
+          "methods": [
+            "__init__",
+            "on_tick",
+            "_update_display",
+            "get_state",
+            "restore_state"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 122
+        }
+      ],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Dict",
+            "Any",
+            "Type"
+          ]
+        },
+        {
+          "source": "strategy.base",
+          "specifiers": [
+            "StrategyBase"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyContext",
+            "StrategyConfig",
+            "Signal",
+            "SignalType",
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "DefaultStrategyConfig",
+        "DefaultStrategy"
+      ],
+      "totalLines": 150,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/dl_anomaly_strategy.py": {
+      "filePath": "strategy/dl_anomaly_strategy.py",
+      "contentHash": "4c06a2ee484ddc909ac5f19d365f771747d2ace08d5bbf73dc42520b42779cef",
+      "functions": [],
+      "classes": [
+        {
+          "name": "DeepAnomalyStrategyConfig",
+          "methods": [],
+          "properties": [
+            "name",
+            "type",
+            "execution_interval",
+            "train_lookback",
+            "window_size",
+            "hidden_size",
+            "num_layers",
+            "dropout",
+            "epochs",
+            "learning_rate",
+            "threshold_sigma",
+            "buy_amount"
+          ],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "DeepAnomalyStrategy",
+          "methods": [
+            "__init__",
+            "on_tick",
+            "on_schedule",
+            "_train_model"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 167
+        }
+      ],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Dict",
+            "Any",
+            "List"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "pandas",
+          "specifiers": [
+            "pd"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "strategy.base",
+          "specifiers": [
+            "StrategyBase"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyContext",
+            "StrategyConfig",
+            "Signal",
+            "SignalType",
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "DeepAnomalyStrategyConfig",
+        "DeepAnomalyStrategy"
+      ],
+      "totalLines": 273,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/manager.py": {
+      "filePath": "strategy/manager.py",
+      "contentHash": "6e063f0b3159e2bf30e859ff4ae77fd30b26284cb642c013aaa2bc934ea124a4",
+      "functions": [],
+      "classes": [
+        {
+          "name": "StrategyObserver",
+          "methods": [
+            "on_strategy_created",
+            "on_strategy_signal",
+            "on_strategy_updated",
+            "on_strategy_deleted"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "StrategyManager",
+          "methods": [
+            "__init__",
+            "register_strategy",
+            "load_strategies",
+            "create_strategy",
+            "add_strategy",
+            "_instantiate_strategy",
+            "on_tick",
+            "on_orderbook",
+            "on_schedule",
+            "process_signal",
+            "_persist_strategy",
+            "stop_strategy",
+            "archive_strategy",
+            "load_strategies_by_pocket_id",
+            "delete_strategies_by_pocket_id"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 286
+        }
+      ],
+      "imports": [
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Type",
+            "List",
+            "Optional",
+            "Any"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyContext",
+            "StrategyConfig",
+            "StrategyDTO",
+            "StrategyStatus",
+            "Signal",
+            "SignalType",
+            "StrategyType"
+          ]
+        },
+        {
+          "source": "strategy.base",
+          "specifiers": [
+            "StrategyBase"
+          ]
+        },
+        {
+          "source": "strategy.repository",
+          "specifiers": [
+            "StrategyRepository"
+          ]
+        },
+        {
+          "source": "account.manager",
+          "specifiers": [
+            "AccountBase"
+          ]
+        },
+        {
+          "source": "traceback",
+          "specifiers": [
+            "traceback"
+          ]
+        },
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "StrategyObserver",
+        "StrategyManager"
+      ],
+      "totalLines": 321,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/models.py": {
+      "filePath": "strategy/models.py",
+      "contentHash": "3aaf6105c5870509f0677015c041f7f4c5ffbbf17b3d20d938d9c55e12e6c7dc",
+      "functions": [],
+      "classes": [
+        {
+          "name": "StrategyType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "StrategyStatus",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "SignalType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "Signal",
+          "methods": [],
+          "properties": [
+            "type",
+            "strategy_id",
+            "ticker",
+            "amount",
+            "price",
+            "reason",
+            "data",
+            "timestamp"
+          ],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "StrategyConfig",
+          "methods": [],
+          "properties": [
+            "name",
+            "type",
+            "execution_interval",
+            "schedule"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "StrategyDTO",
+          "methods": [
+            "summary"
+          ],
+          "properties": [
+            "strategy_id",
+            "name",
+            "type",
+            "ticker",
+            "budget",
+            "pocket_id",
+            "status",
+            "config",
+            "state",
+            "created_at",
+            "updated_at",
+            "last_execution_time"
+          ],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "StrategyContext",
+          "methods": [],
+          "properties": [
+            "strategy_id",
+            "ticker",
+            "budget",
+            "pocket_id",
+            "last_execution_time"
+          ],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "imports": [
+        {
+          "source": "enum",
+          "specifiers": [
+            "Enum"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any",
+            "Optional"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel",
+            "Field"
+          ]
+        }
+      ],
+      "exports": [
+        "StrategyType",
+        "StrategyStatus",
+        "SignalType",
+        "Signal",
+        "StrategyConfig",
+        "StrategyDTO",
+        "StrategyContext"
+      ],
+      "totalLines": 88,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/repository.py": {
+      "filePath": "strategy/repository.py",
+      "contentHash": "84bd60ef1164a17275334f0ede28616ab24c3f1db0235f055c9d08fd72e77516",
+      "functions": [],
+      "classes": [
+        {
+          "name": "StrategyRepository",
+          "methods": [
+            "__init__",
+            "init_db",
+            "save",
+            "archive",
+            "get",
+            "get_all",
+            "_row_to_dto"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 148
+        }
+      ],
+      "imports": [
+        {
+          "source": "sqlite3",
+          "specifiers": [
+            "sqlite3"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "contextlib"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Optional"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyDTO",
+            "StrategyStatus",
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "StrategyRepository"
+      ],
+      "totalLines": 156,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/trailingstop.py": {
+      "filePath": "strategy/trailingstop.py",
+      "contentHash": "da7defba0e4377de88d5fb9a9a999b57c670359b6d7e4986f5178c3aed9667fd",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TrailingStopConfig",
+          "methods": [],
+          "properties": [
+            "name",
+            "type",
+            "entry_price",
+            "trail_percent"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "TrailingStopStrategy",
+          "methods": [
+            "__init__",
+            "on_tick",
+            "get_state",
+            "restore_state"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 41
+        }
+      ],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Optional"
+          ]
+        },
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "Field"
+          ]
+        },
+        {
+          "source": "strategy.base",
+          "specifiers": [
+            "StrategyBase"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "Signal",
+            "SignalType",
+            "StrategyConfig",
+            "StrategyContext",
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "TrailingStopConfig",
+        "TrailingStopStrategy"
+      ],
+      "totalLines": 58,
+      "hasStructuralAnalysis": true
+    },
+    "strategy/volume_strategy.py": {
+      "filePath": "strategy/volume_strategy.py",
+      "contentHash": "7ee777b87428dcb6517125b6e7001145bcf7d4b91490d6db1994ca200fb28849",
+      "functions": [],
+      "classes": [
+        {
+          "name": "VolumeSpikeStrategyConfig",
+          "methods": [],
+          "properties": [
+            "name",
+            "type",
+            "execution_interval",
+            "period",
+            "multiplier",
+            "buy_amount"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "VolumeSpikeStrategy",
+          "methods": [
+            "__init__",
+            "on_tick",
+            "on_schedule",
+            "get_state",
+            "restore_state"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 90
+        }
+      ],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Dict",
+            "Any"
+          ]
+        },
+        {
+          "source": "pyupbit",
+          "specifiers": [
+            "pyupbit"
+          ]
+        },
+        {
+          "source": "pandas",
+          "specifiers": [
+            "pd"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "strategy.base",
+          "specifiers": [
+            "StrategyBase"
+          ]
+        },
+        {
+          "source": "strategy.models",
+          "specifiers": [
+            "StrategyContext",
+            "StrategyConfig",
+            "Signal",
+            "SignalType",
+            "StrategyType"
+          ]
+        }
+      ],
+      "exports": [
+        "VolumeSpikeStrategyConfig",
+        "VolumeSpikeStrategy"
+      ],
+      "totalLines": 113,
+      "hasStructuralAnalysis": true
+    },
+    "tools/candle.py": {
+      "filePath": "tools/candle.py",
+      "contentHash": "2e5bd81fda605dadc905e959dc96b7398873eac1fdc756818c21a5a691aa144d",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Candle",
+          "methods": [
+            "__init__",
+            "update",
+            "is_updated",
+            "reset",
+            "current_price",
+            "render"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 86
+        }
+      ],
+      "imports": [
+        {
+          "source": "pandas",
+          "specifiers": [
+            "pd"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        }
+      ],
+      "exports": [
+        "Candle"
+      ],
+      "totalLines": 91,
+      "hasStructuralAnalysis": true
+    },
+    "tools/converter.py": {
+      "filePath": "tools/converter.py",
+      "contentHash": "4bab3e10a3dff4cad9530d88930374b0e65cdfc7eeb15977e9d054886493dc47",
+      "functions": [
+        {
+          "name": "Decimal2float",
+          "params": [
+            "data"
+          ],
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        }
+      ],
+      "exports": [
+        "Decimal2float"
+      ],
+      "totalLines": 16,
+      "hasStructuralAnalysis": true
+    },
+    "tools/counter.py": {
+      "filePath": "tools/counter.py",
+      "contentHash": "dbc307dc3c3a3c340c42e2f1e756f2dc5ee76ccbfeb4171cedb7f620ba47242d",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Counter",
+          "methods": [
+            "__init__",
+            "increment",
+            "decrement",
+            "get_count"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 18
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "Counter"
+      ],
+      "totalLines": 21,
+      "hasStructuralAnalysis": true
+    },
+    "tools/currency_print.py": {
+      "filePath": "tools/currency_print.py",
+      "contentHash": "83a85dd5ad04f5be2bf97ecf02cd632a1b77957d5653192c140c63f94ded2232",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Color",
+          "methods": [
+            "__init__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "RateColor",
+          "methods": [
+            "__init__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "WonColor",
+          "methods": [
+            "__init__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "Won",
+          "methods": [
+            "__init__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "WonR",
+          "methods": [
+            "__init__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "WonG",
+          "methods": [
+            "__init__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "WonY",
+          "methods": [
+            "__init__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "WonB",
+          "methods": [
+            "__init__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "imports": [
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        }
+      ],
+      "exports": [
+        "Color",
+        "RateColor",
+        "WonColor",
+        "Won",
+        "WonR",
+        "WonG",
+        "WonY",
+        "WonB"
+      ],
+      "totalLines": 73,
+      "hasStructuralAnalysis": true
+    },
+    "tools/db_interface.py": {
+      "filePath": "tools/db_interface.py",
+      "contentHash": "bac24128901bbca3e08d9d967ea12f468379f106284f06f980997705e24b9a1d",
+      "functions": [],
+      "classes": [
+        {
+          "name": "DBInterface",
+          "methods": [
+            "_get_table_name",
+            "_map_type_to_sql",
+            "init_db",
+            "save",
+            "save_all",
+            "load_all",
+            "archive"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 215
+        }
+      ],
+      "imports": [
+        {
+          "source": "sqlite3",
+          "specifiers": [
+            "sqlite3"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "contextlib"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "pydantic",
+          "specifiers": [
+            "BaseModel"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "get_type_hints",
+            "TypeVar",
+            "Type",
+            "List",
+            "Dict",
+            "Optional"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        }
+      ],
+      "exports": [
+        "DBInterface"
+      ],
+      "totalLines": 238,
+      "hasStructuralAnalysis": true
+    },
+    "tools/emoji.py": {
+      "filePath": "tools/emoji.py",
+      "contentHash": "86cd4a001b993f7583e4dc4c0379060a69ea956d3429af4acb6d6c78897616c2",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Emoji",
+          "methods": [
+            "get"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 63
+        }
+      ],
+      "imports": [],
+      "exports": [
+        "Emoji"
+      ],
+      "totalLines": 63,
+      "hasStructuralAnalysis": true
+    },
+    "tools/pipeline.py": {
+      "filePath": "tools/pipeline.py",
+      "contentHash": "b02cb7deb1c4467bd22bece527d0d88f13551db8be97ddff524e354d556dd6aa",
+      "functions": [],
+      "classes": [
+        {
+          "name": "SignalType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "Signal",
+          "methods": [],
+          "properties": [
+            "type",
+            "target_id",
+            "data"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "NodeMetrics",
+          "methods": [
+            "avg_processing_time",
+            "reset"
+          ],
+          "properties": [
+            "processed_count",
+            "error_count",
+            "dropped_count",
+            "last_processed_time",
+            "total_processing_time"
+          ],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "DataItem",
+          "methods": [
+            "__post_init__",
+            "clone"
+          ],
+          "properties": [
+            "value",
+            "timestamp",
+            "metadata",
+            "route_id",
+            "item_id"
+          ],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "Node",
+          "methods": [
+            "__init__",
+            "process",
+            "handle",
+            "connect",
+            "disconnect",
+            "emit",
+            "pause",
+            "resume",
+            "update_config",
+            "start",
+            "stop",
+            "_process_loop",
+            "get_metrics",
+            "clear_metrics"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 176
+        },
+        {
+          "name": "Source",
+          "methods": [
+            "__init__",
+            "process",
+            "push_data"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "Processor",
+          "methods": [
+            "__init__",
+            "process",
+            "update_function"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "RouterProcessor",
+          "methods": [
+            "__init__",
+            "process",
+            "update_router"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "AggregatorProcessor",
+          "methods": [
+            "__init__",
+            "process"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "FilterProcessor",
+          "methods": [
+            "__init__",
+            "process",
+            "update_filter"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "ErrorHandler",
+          "methods": [
+            "__init__",
+            "process",
+            "_default_error_handler",
+            "get_error_log"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "Sink",
+          "methods": [
+            "__init__",
+            "process",
+            "update_consumer",
+            "get_collected",
+            "clear_collected"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "PipelineManager",
+          "methods": [
+            "__init__",
+            "register_node",
+            "unregister_node",
+            "get_node",
+            "connect_nodes",
+            "disconnect_nodes",
+            "send_signal",
+            "start",
+            "stop",
+            "_process_signals",
+            "_handle_signal",
+            "get_pipeline_status",
+            "get_topology"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 187
+        }
+      ],
+      "imports": [
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Callable",
+            "List",
+            "Optional",
+            "Dict"
+          ]
+        },
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "enum",
+          "specifiers": [
+            "Enum"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "asyncio",
+          "specifiers": [
+            "asyncio"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "deque"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        }
+      ],
+      "exports": [
+        "SignalType",
+        "Signal",
+        "NodeMetrics",
+        "DataItem",
+        "Node",
+        "Source",
+        "Processor",
+        "RouterProcessor",
+        "AggregatorProcessor",
+        "FilterProcessor",
+        "ErrorHandler",
+        "Sink",
+        "PipelineManager"
+      ],
+      "totalLines": 691,
+      "hasStructuralAnalysis": true
+    },
+    "tools/ticker.py": {
+      "filePath": "tools/ticker.py",
+      "contentHash": "14728224df7f75a53447f9a797c592583a45e7762a8807c520eba5fc900c8a40",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TickerBase",
+          "methods": [],
+          "properties": [
+            "currency",
+            "unit_currency"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "Ticker",
+          "methods": [
+            "__init__",
+            "amount",
+            "volume",
+            "ticker",
+            "market",
+            "__eq__",
+            "__str__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any"
+          ]
+        }
+      ],
+      "exports": [
+        "TickerBase",
+        "Ticker"
+      ],
+      "totalLines": 58,
+      "hasStructuralAnalysis": true
+    },
+    "tools/upbit_fee.py": {
+      "filePath": "tools/upbit_fee.py",
+      "contentHash": "705ccc9dd5972c851e5e85f20529c8df446575992d9cc6a577bb219fa6ca2a2e",
+      "functions": [],
+      "classes": [
+        {
+          "name": "FeeType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "FeePolicy",
+          "methods": [
+            "get_fee"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "UpbitFeePolicy",
+          "methods": [
+            "__init__",
+            "get_fee",
+            "add_fixed_rule",
+            "add_percentage_rule"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 42
+        }
+      ],
+      "imports": [
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "decimal",
+          "specifiers": [
+            "Decimal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Dict"
+          ]
+        },
+        {
+          "source": "enum",
+          "specifiers": [
+            "Enum"
+          ]
+        }
+      ],
+      "exports": [
+        "FeeType",
+        "FeePolicy",
+        "UpbitFeePolicy"
+      ],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "upbit/upbit_websocket.py": {
+      "filePath": "upbit/upbit_websocket.py",
+      "contentHash": "eba32c672f0cf5686fe6448508e03fee6020a57d967963bf90768c65098b31f9",
+      "functions": [],
+      "classes": [
+        {
+          "name": "WebsocketObserver",
+          "methods": [
+            "on_ws_opened",
+            "on_ws_message",
+            "on_ws_closed"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "UpbitWebSocketBase",
+          "methods": [
+            "__init__",
+            "_on_message",
+            "_on_error",
+            "_on_close",
+            "_on_open",
+            "_run_forever",
+            "start",
+            "stop"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 66
+        },
+        {
+          "name": "UpbitWebSocket",
+          "methods": [
+            "__init__",
+            "_update_request",
+            "add_subscription",
+            "remove_subscription"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "UpbitWebSocketPrivate",
+          "methods": [
+            "__init__",
+            "_make_jwt"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 18
+        }
+      ],
+      "imports": [
+        {
+          "source": "websocket",
+          "specifiers": [
+            "websocket"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "jwt",
+          "specifiers": [
+            "jwt"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "logging",
+          "specifiers": [
+            "logging"
+          ]
+        },
+        {
+          "source": "abc",
+          "specifiers": [
+            "ABC",
+            "abstractmethod"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "List"
+          ]
+        }
+      ],
+      "exports": [
+        "WebsocketObserver",
+        "UpbitWebSocketBase",
+        "UpbitWebSocket",
+        "UpbitWebSocketPrivate"
+      ],
+      "totalLines": 142,
+      "hasStructuralAnalysis": true
+    },
+    "web/index.html": {
+      "filePath": "web/index.html",
+      "contentHash": "0299a63376dc9ad87723b939a62a3ba0cae8c23de878ac3058bdfff88395bfb6",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 300,
+      "hasStructuralAnalysis": false
+    }
+  }
+}

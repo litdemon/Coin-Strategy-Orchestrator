@@ -134,6 +134,50 @@
       </template>
     </div>
   </section>
+
+  <!-- Agent Setup Guide -->
+  <section class="full-width" x-data="agentGuide()" x-init="init()">
+    <h2 @click="toggle()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+      <span>AI Agent 연결 가이드</span>
+      <span x-text="showGuide ? '▲ 접기' : '▼ 펼치기'" style="font-size:11px;color:#58a6ff;font-weight:normal;letter-spacing:0"></span>
+    </h2>
+    <div x-show="showGuide" x-transition style="margin-top:10px">
+      <!-- MCP URL bar -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;background:#0d1117;padding:8px 12px;border-radius:4px;border:1px solid #30363d">
+        <span style="color:#8b949e;font-size:11px;white-space:nowrap">MCP Server</span>
+        <code x-text="mcpUrl" style="color:#58a6ff;flex:1;font-size:12px"></code>
+        <button @click="copyUrl()" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;white-space:nowrap" x-text="copiedUrl ? '복사됨 ✓' : '복사'"></button>
+      </div>
+      <!-- Steps -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:10px">
+          <div style="color:#58a6ff;font-size:11px;margin-bottom:8px">STEP 1 — Agent 선택</div>
+          <div style="color:#c9d1d9;font-size:12px;line-height:1.8">
+            MCP를 지원하는 AI 클라이언트:<br>
+            <a href="https://claude.ai/download" target="_blank" style="color:#58a6ff;text-decoration:none">▸ Claude Desktop</a><br>
+            <span style="color:#8b949e">▸ Cursor IDE</span><br>
+            <span style="color:#8b949e">▸ VS Code (Copilot)</span>
+          </div>
+        </div>
+        <div style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:10px">
+          <div style="color:#58a6ff;font-size:11px;margin-bottom:4px">STEP 2 — MCP 설정 추가</div>
+          <div style="color:#8b949e;font-size:10px;margin-bottom:6px">claude_desktop_config.json</div>
+          <pre x-text="configJson" style="background:#161b22;border:1px solid #21262d;border-radius:3px;padding:6px;font-size:10px;color:#c9d1d9;overflow:auto;margin:0"></pre>
+          <button @click="copyConfig()" style="margin-top:6px;width:100%;background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 0;border-radius:4px;cursor:pointer;font-size:11px" x-text="copiedCfg ? '복사됨 ✓' : '설정 복사'"></button>
+        </div>
+        <div style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:10px">
+          <div style="color:#58a6ff;font-size:11px;margin-bottom:8px">STEP 3 — 명령 예시</div>
+          <div style="font-size:11px;line-height:1.9">
+            <span style="color:#56d364">"BTC 1만원어치 매수해줘"</span><br>
+            <span style="color:#56d364">"현재 잔고 알려줘"</span><br>
+            <span style="color:#56d364">"활성 전략 목록 보여줘"</span><br>
+            <span style="color:#56d364">"모든 포켓 정리해줘"</span><br>
+            <span style="color:#8b949e;font-size:10px">buy · sell · strategy · account<br>pockets · orders · status · cancel</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -208,6 +252,45 @@ function dashboard() {
     pnlClass(avg, cur) {
       if (!avg || !cur || parseFloat(avg) === 0) return 'neu';
       return parseFloat(cur) >= parseFloat(avg) ? 'pos' : 'neg';
+    },
+  };
+}
+
+function agentGuide() {
+  return {
+    showGuide: localStorage.getItem('guideOpen') !== 'false',
+    mcpUrl: 'http://127.0.0.1:8000/mcp',
+    copiedUrl: false,
+    copiedCfg: false,
+    configJson: '',
+
+    async init() {
+      try {
+        const r = await fetch('/api/info');
+        const d = await r.json();
+        if (d.mcp_url) this.mcpUrl = d.mcp_url;
+      } catch {}
+      this.configJson = JSON.stringify(
+        { mcpServers: { 'coin-strategy': { url: this.mcpUrl } } },
+        null, 2
+      );
+    },
+
+    toggle() {
+      this.showGuide = !this.showGuide;
+      localStorage.setItem('guideOpen', String(this.showGuide));
+    },
+
+    async copyUrl() {
+      await navigator.clipboard.writeText(this.mcpUrl);
+      this.copiedUrl = true;
+      setTimeout(() => { this.copiedUrl = false; }, 2000);
+    },
+
+    async copyConfig() {
+      await navigator.clipboard.writeText(this.configJson);
+      this.copiedCfg = true;
+      setTimeout(() => { this.copiedCfg = false; }, 2000);
     },
   };
 }

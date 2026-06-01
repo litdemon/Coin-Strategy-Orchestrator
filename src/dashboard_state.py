@@ -165,7 +165,7 @@ class DashboardStateStore:
         if event_type in _THROTTLE_TYPES:
             key = f"{event_type}:{payload.get('code', '')}"
             now = time.monotonic()
-            if now - self._throttle.get(key, 0) < _THROTTLE_SEC:
+            if now - self._throttle.get(key, -1e9) < _THROTTLE_SEC:
                 return
             self._throttle[key] = now
 
