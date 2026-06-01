@@ -8,6 +8,7 @@
         }
     },
     "account": {
+        "mode": "paper",
         "initial_balance": 10000000,
         "fees": {
             "KRW": 0.0005

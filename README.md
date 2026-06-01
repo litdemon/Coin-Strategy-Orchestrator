@@ -55,6 +55,7 @@ EOF
     "mqtt": { "host": "mqtt.example.com", "port": 1883, "client_id": "" }
   },
   "account": {
+    "mode": "paper",
     "initial_balance": 10000000,
     "fees": { "KRW": 0.0005 }
   },
@@ -75,7 +76,8 @@ EOF
 |------|------|
 | `messaging.broker_type` | `"mqtt"` \| `"redis"` \| `"socket"` — 외부 명령 채널 |
 | `messaging.mqtt.host` | MQTT 브로커 주소 (MQTT 모드 필수) |
-| `account.initial_balance` | 가상 계좌 초기 잔고 (KRW) |
+| `account.mode` | **`"paper"`** (기본, 가상계좌) \| **`"live"`** (실계좌 — API 키 필수) |
+| `account.initial_balance` | 가상 계좌 초기 잔고 (KRW, paper 모드에서만 사용) |
 | `account.fees.KRW` | 거래 수수료율 (0.05% = `0.0005`) |
 | `dashboard.port` | Web UI 포트 |
 | `dashboard.token` | 대시보드 접근 토큰 (빈 문자열이면 인증 없음) |
@@ -111,6 +113,46 @@ python app.py
 | AI Agent 연결 가이드 | MCP 설정 안내 (접기/펼치기) |
 
 > 토큰이 설정된 경우 `http://127.0.0.1:8765?token=<토큰값>` 으로 접속합니다.
+
+---
+
+## 실계좌 연동 (Live 모드)
+
+### 1. 업비트 API 키 발급
+
+1. [업비트 홈페이지](https://upbit.com) 로그인
+2. **마이페이지 → Open API 관리** 이동
+3. 새 키 발급 시 **필요 권한 체크**:
+   - `자산 조회` ✅
+   - `주문 조회` ✅
+   - `주문하기` ✅ (실거래 시 필수)
+4. IP 화이트리스트에 서버 IP 등록 (권장)
+
+### 2. API 키 저장 (환경변수, 평문 저장 금지)
+
+```bash
+cat >> ~/.config/upbit.env <<EOF
+UPBIT_ACCESS_KEY=your_access_key_here
+UPBIT_SECRET_KEY=your_secret_key_here
+EOF
+chmod 600 ~/.config/upbit.env
+```
+
+> ⚠️ API 키를 `default.json`이나 소스코드에 직접 기입하지 마세요. `.gitignore`에 `*.env`를 추가하세요.
+
+### 3. Live 모드 활성화
+
+`default.json`의 `account.mode`를 변경합니다:
+
+```json
+"account": {
+  "mode": "live"
+}
+```
+
+시작 시 로그에 `Account mode: LIVE (real Upbit API)` 가 출력되면 실계좌 연동 완료입니다.
+
+> ⚠️ live 모드에서는 실제 자산이 이동합니다. 소액으로 먼저 테스트하세요.
 
 ---
 

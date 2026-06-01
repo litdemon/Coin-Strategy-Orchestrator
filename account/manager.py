@@ -165,6 +165,157 @@ class AccountDBManager(AccountBase):
     
     def check_order(self, market: str, orderbook_units: List[dict]) -> Optional[OrderDTO]:
         return self.manager.check_and_execute_orders(market, orderbook_units)
-    
 
 
+# ---------------------------------------------------------------------------
+# Live account: wraps the real Upbit REST API via pyupbit.Upbit
+# ---------------------------------------------------------------------------
+
+class LiveAccountManager(AccountBase):
+    """Executes real orders on Upbit. API keys are read from environment variables
+    (UPBIT_ACCESS_KEY / UPBIT_SECRET_KEY). Never store keys in config files.
+    """
+
+    def __init__(self, callback: Callable[[Any, dict], None]):
+        super().__init__()
+        import os
+        access = os.environ.get("UPBIT_ACCESS_KEY", "")
+        secret = os.environ.get("UPBIT_SECRET_KEY", "")
+        if not access or not secret:
+            raise EnvironmentError(
+                "UPBIT_ACCESS_KEY and UPBIT_SECRET_KEY must be set for live mode. "
+                "Add them to ~/.config/upbit.env"
+            )
+        self._upbit = pyupbit.Upbit(access, secret)
+        self._callback = callback
+        self._open_uuids: set = set()  # track submitted order UUIDs
+
+    def init(self):
+        balances = self._upbit.get_balances()
+        logger.info(f"LiveAccountManager initialised. Balances: {len(balances or [])} assets")
+
+    # --- Balance queries ---
+
+    def get_balance(self, ticker: str) -> Decimal:
+        currency = Ticker(ticker).currency
+        val = self._upbit.get_balance(currency)
+        return Decimal(str(val)) if val is not None else Decimal("0")
+
+    def get_asset_balance(self, ticker: str) -> dict:
+        currency = Ticker(ticker).currency
+        bal = self._upbit.get_balance_t(currency)
+        if not bal:
+            return {"currency": currency, "balance": 0.0, "avg_buy_price": 0.0, "locked": 0.0, "unit_currency": "KRW"}
+        return {
+            "currency": bal.get("currency", currency),
+            "balance": float(bal.get("balance", 0)),
+            "avg_buy_price": float(bal.get("avg_buy_price", 0)),
+            "locked": float(bal.get("locked", 0)),
+            "unit_currency": bal.get("unit_currency", "KRW"),
+        }
+
+    def get_balances(self) -> List[dict]:
+        raw = self._upbit.get_balances() or []
+        result = []
+        for b in raw:
+            result.append({
+                "currency": b.get("currency", ""),
+                "balance": float(b.get("balance", 0)),
+                "avg_buy_price": float(b.get("avg_buy_price", 0)),
+                "locked": float(b.get("locked", 0)),
+                "unit_currency": b.get("unit_currency", "KRW"),
+            })
+        return result
+
+    # --- Order placement ---
+
+    def buy_market_order(self, ticker: str, volume: Decimal) -> dict:
+        # pyupbit market buy takes KRW price (not coin volume); convert using current price
+        current_price = pyupbit.get_current_price(ticker)
+        if not current_price:
+            logger.error(f"LiveBuy: cannot fetch price for {ticker}")
+            return {}
+        krw_amount = float(Decimal(str(current_price)) * volume)
+        result = self._upbit.buy_market_order(ticker, krw_amount) or {}
+        uuid = result.get("uuid")
+        if uuid:
+            self._open_uuids.add(uuid)
+        logger.info(f"LiveBuy market {ticker} {volume} → {uuid}")
+        return result
+
+    def buy_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> dict:
+        result = self._upbit.buy_limit_order(ticker, float(price), float(volume)) or {}
+        uuid = result.get("uuid")
+        if uuid:
+            self._open_uuids.add(uuid)
+        logger.info(f"LiveBuy limit {ticker} {volume}@{price} → {uuid}")
+        return result
+
+    def sell_market_order(self, ticker: str, volume: Decimal) -> dict:
+        result = self._upbit.sell_market_order(ticker, float(volume)) or {}
+        uuid = result.get("uuid")
+        if uuid:
+            self._open_uuids.add(uuid)
+        logger.info(f"LiveSell market {ticker} {volume} → {uuid}")
+        return result
+
+    def sell_limit_order(self, ticker: str, price: Decimal, volume: Decimal) -> dict:
+        result = self._upbit.sell_limit_order(ticker, float(price), float(volume)) or {}
+        uuid = result.get("uuid")
+        if uuid:
+            self._open_uuids.add(uuid)
+        logger.info(f"LiveSell limit {ticker} {volume}@{price} → {uuid}")
+        return result
+
+    # --- Order queries ---
+
+    def get_orders(self) -> List[dict]:
+        orders = []
+        stale = set()
+        for uuid in list(self._open_uuids):
+            try:
+                order = self._upbit.get_order(uuid) or {}
+                state = order.get("state", "")
+                if state in ("done", "cancel"):
+                    stale.add(uuid)
+                else:
+                    orders.append(order)
+            except Exception as exc:
+                logger.warning(f"get_orders: error querying {uuid}: {exc}")
+        self._open_uuids -= stale
+        return orders
+
+    def get_order(self, ticker: str, state: str = "wait") -> List[dict]:
+        try:
+            result = self._upbit.get_order(ticker, state=state) or []
+            return result if isinstance(result, list) else [result]
+        except Exception as exc:
+            logger.warning(f"get_order {ticker}: {exc}")
+            return []
+
+    def cancel_order(self, uuid: str) -> dict:
+        result = self._upbit.cancel_order(uuid) or {}
+        self._open_uuids.discard(uuid)
+        logger.info(f"LiveCancel {uuid}")
+        return result
+
+    # --- Lifecycle hooks (no-op: Upbit fills orders externally) ---
+
+    def on_order_complete(self, order):
+        self._open_uuids.discard(getattr(order, "uuid", None) or order.get("uuid", ""))
+
+    def check_order(self, market: str, orderbook_units: List[dict]):
+        # In live mode, order fills are reported via Upbit WebSocket (on_my_order).
+        # Orderbook-based simulation is not needed.
+        return None
+
+    # --- Market data (delegates to pyupbit public API) ---
+
+    def get_current_price(self, ticker: str) -> Decimal:
+        return Decimal(str(pyupbit.get_current_price(ticker)))
+
+    def get_ohlcv(self, ticker: str, interval: str = "minute1", count: int = 200) -> List[dict]:
+        return pyupbit.get_ohlcv(ticker, interval, count)
+
+    def get_orderbook(self, ticker: str) -> List[dict]:
+        return pyupbit.get_orderbook(ticker)

@@ -36,7 +36,7 @@ from tools.ticker import Ticker
 from tools.converter import Decimal2float
 from tools.counter import Counter
 from tools.currency_print import Won
-from account.manager import AccountDBManager
+from account.manager import AccountDBManager, LiveAccountManager
 from account.exceptions import InsufficientBalanceException
 from src.dashboard import Dashboard
 from src.pocket_manager import Pocket, PocketManager, PocketObserver, PocketStateType
@@ -91,7 +91,13 @@ class Manager(WebsocketObserver, StrategyObserver, PocketObserver):
                 
     def init_account(self, config: dict = None):
         account_config = config.get("account", {}) if config else {}
-        self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config, db_path=DB_PATH)
+        mode = account_config.get("mode", "paper").lower()
+        if mode == "live":
+            logger.info("Account mode: LIVE (real Upbit API)")
+            self.account_manager = LiveAccountManager(callback=self.on_ws_message)
+        else:
+            logger.info("Account mode: PAPER (virtual)")
+            self.account_manager = AccountDBManager(callback=self.on_ws_message, config=account_config, db_path=DB_PATH)
         self.account_manager.init()
 
         tickers = []
