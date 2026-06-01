@@ -1,0 +1,26 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "8765:8765"
+      - "8000:8000"
+    volumes:
+      - ./default.json:/app/default.json:ro
+      - app-data:/app/logs
+      - app-data:/app/account.db
+    env_file:
+      - .env
+    depends_on:
+      - mqtt
+    restart: unless-stopped
+
+volumes:
+  app-data:

@@ -208,6 +208,53 @@ chmod 600 ~/.config/upbit.env
 
 ---
 
+## Docker로 실행
+
+Python 환경 없이 Docker 한 번으로 앱 + MQTT 브로커를 함께 실행합니다.
+
+### 1. 환경 변수 파일 준비
+
+```bash
+cp .env.example .env
+# .env 파일을 열어 API 키 입력 (paper 모드면 빈 값으로 유지)
+```
+
+### 2. default.json MQTT 브로커 주소 변경
+
+Docker 환경에서는 MQTT 서비스명 `mqtt`를 호스트로 사용합니다:
+
+```json
+"messaging": {
+  "broker_type": "mqtt",
+  "mqtt": { "host": "mqtt", "port": 1883, "client_id": "" }
+}
+```
+
+### 3. 실행
+
+```bash
+docker compose up --build
+```
+
+| 서비스 | 포트 |
+|--------|------|
+| Web 대시보드 | http://localhost:8765 |
+| MCP 서버 | http://localhost:8000/mcp |
+| MQTT 브로커 | localhost:1883 |
+
+```bash
+# 백그라운드 실행
+docker compose up -d
+
+# 로그 확인
+docker compose logs -f app
+
+# 종료
+docker compose down
+```
+
+---
+
 ## 테스트
 
 ```bash
