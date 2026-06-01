@@ -146,6 +146,43 @@ def main():
         logger.error(traceback.format_exc())
     # -----------------------
 
+    # --- /ws/control command handler ---
+    try:
+        from src.ws_server import set_command_handler
+        from project_mcp.tools.strategy_tool import StrategyTool
+
+        _strategy_tool = StrategyTool()
+
+        def _ws_command_handler(cmd: dict) -> dict:
+            action = cmd.get("action", "")
+            if action == "strategy.create":
+                return _strategy_tool.execute(
+                    action="create",
+                    params={
+                        "name": cmd.get("name", "scalping_strategy"),
+                        "ticker": cmd.get("ticker", ""),
+                        "type": cmd.get("type", "buy"),
+                        "budget": str(cmd.get("budget", "0")),
+                        "config": cmd.get("config", {}),
+                    },
+                )
+            elif action == "strategy.delete":
+                return _strategy_tool.execute(
+                    action="delete",
+                    params={"strategy_id": cmd.get("strategy_id", "")},
+                )
+            elif action == "strategy.list":
+                return _strategy_tool.execute(action="list", params={})
+            elif action == "strategy.list_types":
+                return _strategy_tool.execute(action="list_types", params={})
+            return {"error": f"Unknown action: {action!r}. Supported: strategy.create, strategy.delete, strategy.list"}
+
+        set_command_handler(_ws_command_handler)
+        logger.info("WebSocket control command handler registered")
+    except Exception as e:
+        logger.warning(f"Failed to register ws command handler: {e}")
+    # ------------------------------------
+
     try:
         # Run loop
         while True:

@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import threading
-from typing import Optional, Set
+from typing import Callable, Optional, Set
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 _loop: Optional[asyncio.AbstractEventLoop] = None
 _loop_ready = threading.Event()
 _clients_view: Set[WebSocket] = set()
+
+# Sync command handler injected from app.py
+_command_handler: Optional[Callable[[dict], dict]] = None
+
+
+def set_command_handler(fn: Callable[[dict], dict]) -> None:
+    global _command_handler
+    _command_handler = fn
 
 
 def _check_token(provided: Optional[str], required: Optional[str]) -> bool:
@@ -50,8 +58,26 @@ def create_app(state_store, token: Optional[str], web_dir: str) -> FastAPI:
         await ws.accept()
         try:
             await ws.send_json({'type': 'snapshot', 'payload': state_store.snapshot()})
-            async for _ in ws.iter_text():
-                pass  # Phase 3: command dispatch placeholder
+            async for text in ws.iter_text():
+                try:
+                    cmd = json.loads(text)
+                except json.JSONDecodeError:
+                    await ws.send_json({'type': 'cmd_result', 'payload': {'ok': False, 'error': 'Invalid JSON'}})
+                    continue
+
+                handler = globals().get('_command_handler')
+                if handler is None:
+                    await ws.send_json({'type': 'cmd_result', 'payload': {'ok': False, 'error': 'Command handler not ready'}})
+                    continue
+
+                loop = asyncio.get_event_loop()
+                try:
+                    result = await loop.run_in_executor(None, handler, cmd)
+                    ok = 'error' not in result
+                    await ws.send_json({'type': 'cmd_result', 'payload': {'ok': ok, 'data': result}})
+                except Exception as exc:
+                    logger.error(f"ws_control command error: {exc}")
+                    await ws.send_json({'type': 'cmd_result', 'payload': {'ok': False, 'error': str(exc)}})
         except WebSocketDisconnect:
             pass
 

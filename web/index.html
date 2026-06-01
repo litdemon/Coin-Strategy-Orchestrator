@@ -84,21 +84,63 @@
   </section>
 
   <!-- Strategies -->
-  <section>
-    <h2>Strategies</h2>
+  <section x-data="strategyControl()" x-init="init()">
+    <h2 style="display:flex;justify-content:space-between;align-items:center">
+      <span>Strategies</span>
+      <button @click="showForm=!showForm" style="background:#1f6a2e;border:none;color:#56d364;padding:2px 10px;border-radius:4px;cursor:pointer;font-size:11px" x-text="showForm ? '✕ 취소' : '+ 전략 추가'"></button>
+    </h2>
+
+    <!-- Create Form -->
+    <div x-show="showForm" x-transition style="background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:10px;margin-bottom:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+        <div>
+          <div style="color:#8b949e;font-size:10px;margin-bottom:2px">Ticker</div>
+          <input x-model="form.ticker" placeholder="KRW-BTC" style="width:100%;background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:12px;font-family:monospace">
+        </div>
+        <div>
+          <div style="color:#8b949e;font-size:10px;margin-bottom:2px">전략</div>
+          <select x-model="form.name" style="width:100%;background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:12px">
+            <option value="scalping_strategy">scalping_strategy</option>
+            <option value="volume_spike_strategy">volume_spike_strategy</option>
+            <option value="anomaly_detection">anomaly_detection</option>
+            <option value="dl_anomaly_detection">dl_anomaly_detection</option>
+            <option value="trailing_stop">trailing_stop</option>
+            <option value="default">default</option>
+          </select>
+        </div>
+        <div>
+          <div style="color:#8b949e;font-size:10px;margin-bottom:2px">예산 (KRW)</div>
+          <input x-model="form.budget" placeholder="100000" type="number" style="width:100%;background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:12px;font-family:monospace">
+        </div>
+        <div>
+          <div style="color:#8b949e;font-size:10px;margin-bottom:2px">타입</div>
+          <select x-model="form.type" style="width:100%;background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:12px">
+            <option value="buy">buy</option>
+            <option value="sell">sell</option>
+          </select>
+        </div>
+      </div>
+      <button @click="createStrategy()" :disabled="loading" style="width:100%;background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:5px 0;border-radius:4px;cursor:pointer;font-size:12px" x-text="loading ? '처리 중...' : '전략 생성'"></button>
+      <div x-show="result" x-transition style="margin-top:6px;padding:6px 8px;border-radius:4px;font-size:11px"
+           :style="resultOk ? 'background:#1f6a2e;color:#56d364' : 'background:#6e1313;color:#f85149'"
+           x-text="result"></div>
+    </div>
+
+    <!-- Strategy Table -->
     <table>
-      <thead><tr><th>ID</th><th>Name</th><th>Ticker</th><th>Status</th></tr></thead>
+      <thead><tr><th>ID</th><th>Name</th><th>Ticker</th><th>Status</th><th></th></tr></thead>
       <tbody>
-        <template x-for="(s, id) in state.strategies" :key="id">
+        <template x-for="(s, id) in $root.state.strategies" :key="id">
           <tr>
             <td x-text="id.substring(0,8)" style="color:#8b949e"></td>
             <td x-text="s.name || s.type || '-'"></td>
             <td x-text="s.ticker || '-'"></td>
             <td><span :class="s.status === 'ACTIVE' ? 'pos' : 'neu'" x-text="s.status"></span></td>
+            <td><button @click="deleteStrategy(id)" style="background:none;border:1px solid #6e1313;color:#f85149;padding:1px 6px;border-radius:3px;cursor:pointer;font-size:10px">삭제</button></td>
           </tr>
         </template>
-        <tr x-show="Object.keys(state.strategies).length === 0">
-          <td colspan="4" style="color:#8b949e;text-align:center">No active strategies</td>
+        <tr x-show="Object.keys($root.state.strategies).length === 0">
+          <td colspan="5" style="color:#8b949e;text-align:center">No active strategies</td>
         </tr>
       </tbody>
     </table>
@@ -252,6 +294,70 @@ function dashboard() {
     pnlClass(avg, cur) {
       if (!avg || !cur || parseFloat(avg) === 0) return 'neu';
       return parseFloat(cur) >= parseFloat(avg) ? 'pos' : 'neg';
+    },
+  };
+}
+
+function strategyControl() {
+  return {
+    showForm: false,
+    loading: false,
+    result: '',
+    resultOk: true,
+    form: { ticker: '', name: 'scalping_strategy', budget: '', type: 'buy' },
+    ws: null,
+    pendingResolve: null,
+
+    init() {
+      const token = new URLSearchParams(location.search).get('token') || '';
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const url = `${proto}://${location.host}/ws/control${token ? '?token=' + encodeURIComponent(token) : ''}`;
+      const connect = () => {
+        this.ws = new WebSocket(url);
+        this.ws.onclose = () => setTimeout(connect, 3000);
+        this.ws.onmessage = (e) => {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'cmd_result' && this.pendingResolve) {
+            this.pendingResolve(msg.payload);
+            this.pendingResolve = null;
+          }
+        };
+      };
+      connect();
+    },
+
+    send(cmd) {
+      return new Promise((resolve) => {
+        this.pendingResolve = resolve;
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify(cmd));
+        } else {
+          resolve({ ok: false, error: 'Control WebSocket not connected' });
+        }
+      });
+    },
+
+    async createStrategy() {
+      if (!this.form.ticker || !this.form.budget) {
+        this.result = 'Ticker와 예산을 입력하세요.'; this.resultOk = false; return;
+      }
+      this.loading = true; this.result = '';
+      const res = await this.send({ action: 'strategy.create', ...this.form });
+      this.loading = false;
+      this.resultOk = res.ok;
+      this.result = res.ok
+        ? `생성 완료: ${res.data?.strategy_id?.substring(0, 8) ?? ''}`
+        : `오류: ${res.error || res.data?.error || '알 수 없는 오류'}`;
+      if (res.ok) { this.showForm = false; this.form = { ticker: '', name: 'scalping_strategy', budget: '', type: 'buy' }; }
+      setTimeout(() => { this.result = ''; }, 4000);
+    },
+
+    async deleteStrategy(id) {
+      if (!confirm(`전략 ${id.substring(0, 8)} 를 삭제하시겠습니까?`)) return;
+      const res = await this.send({ action: 'strategy.delete', strategy_id: id });
+      this.resultOk = res.ok;
+      this.result = res.ok ? '삭제 완료' : `오류: ${res.error || res.data?.error}`;
+      setTimeout(() => { this.result = ''; }, 3000);
     },
   };
 }
