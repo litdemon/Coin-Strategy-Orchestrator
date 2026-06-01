@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import traceback
+import uuid as _uuid_mod
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -53,6 +54,10 @@ class StatusCommandTool(CommandActionTool):
         context.messaging.publish(f"trading/response/{uuid}/status", status)
         return status
 
+    def mcp_execute(self) -> Dict[str, Any]:
+        """서버 실행 상태 및 포켓 수를 반환합니다."""
+        return self.execute(uuid=str(_uuid_mod.uuid4()), data={})
+
 
 class AccountCommandTool(CommandActionTool):
     action = "account"
@@ -64,6 +69,10 @@ class AccountCommandTool(CommandActionTool):
         context.messaging.publish(f"trading/response/{uuid}/account", serializable)
         context.dashboard.log(f"Account: {serializable}")
         return {"balances": serializable}
+
+    def mcp_execute(self) -> Dict[str, Any]:
+        """계좌 잔고를 조회합니다. KRW 및 보유 코인별 잔고를 반환합니다."""
+        return self.execute(uuid=str(_uuid_mod.uuid4()), data={})
 
 
 class BuyCommandTool(CommandActionTool):
@@ -122,6 +131,24 @@ class BuyCommandTool(CommandActionTool):
                 ticker.ticker, price, volume
             )
         return order or {}
+
+    def mcp_execute(
+        self,
+        ticker: str,
+        won: str = "0",
+        volume: str = "0",
+        price: str = "0",
+    ) -> Dict[str, Any]:
+        """암호화폐 매수.
+
+        시장가 매수: ticker + won(KRW 금액) 지정.
+        지정가 매수: ticker + volume(수량) + price(가격) 지정.
+        예) {"ticker": "KRW-BTC", "won": "100000"} → BTC를 10만원어치 시장가 매수.
+        """
+        return self.execute(
+            uuid=str(_uuid_mod.uuid4()),
+            data={"ticker": ticker, "won": won, "volume": volume, "price": price},
+        )
 
 
 class SellCommandTool(CommandActionTool):
@@ -197,6 +224,25 @@ class SellCommandTool(CommandActionTool):
 
         return {"result": "sell_requested"}
 
+    def mcp_execute(
+        self,
+        ticker: str,
+        won: str = "0",
+        volume: str = "0",
+        price: str = "0",
+    ) -> Dict[str, Any]:
+        """암호화폐 매도.
+
+        시장가 전량 매도: ticker + volume="-1" 지정.
+        시장가 매도: ticker + volume(수량) 지정.
+        지정가 매도: ticker + volume(수량) + price(가격) 지정.
+        예) {"ticker": "KRW-BTC", "volume": "-1"} → BTC 전량 시장가 매도.
+        """
+        return self.execute(
+            uuid=str(_uuid_mod.uuid4()),
+            data={"ticker": ticker, "won": won, "volume": volume, "price": price},
+        )
+
 
 class CancelCommandTool(CommandActionTool):
     action = "cancel"
@@ -241,6 +287,22 @@ class CancelCommandTool(CommandActionTool):
             return formatted
 
         raise ValueError("uuid or ticker is required for cancel action")
+
+    def mcp_execute(
+        self,
+        ticker: str = "",
+        order_uuid: str = "",
+    ) -> Dict[str, Any]:
+        """주문 취소.
+
+        ticker: 해당 티커의 미체결 주문 전체 취소.
+        order_uuid: 특정 주문 UUID (앞 6자 이상의 부분 일치 가능).
+        예) {"ticker": "KRW-BTC"} → BTC 미체결 주문 전체 취소.
+        """
+        return self.execute(
+            uuid=str(_uuid_mod.uuid4()),
+            data={"ticker": ticker, "uuid": order_uuid},
+        )
 
     @staticmethod
     def _format_result(result: Any) -> Dict[str, Any]:
@@ -305,6 +367,47 @@ class PocketsCommandTool(CommandActionTool):
 
         return {"count": count, "text": response_text}
 
+    def mcp_execute(self) -> Dict[str, Any]:
+        """활성 포켓(보유 포지션) 목록과 수익률을 조회합니다."""
+        return self.execute(uuid=str(_uuid_mod.uuid4()), data={})
+
+
+class PriceCommandTool(CommandActionTool):
+    action = "price"
+
+    def execute(self, uuid: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        context = get_execution_context()
+        tickers_raw = data.get("tickers")
+        ticker_raw = data.get("ticker")
+
+        if tickers_raw and isinstance(tickers_raw, list):
+            results = []
+            for t in tickers_raw:
+                ticker = Ticker(t)
+                try:
+                    price_value = pyupbit.get_current_price(ticker.ticker)
+                    results.append({"ticker": ticker.ticker, "price": float(price_value) if price_value else None})
+                except Exception as exc:
+                    results.append({"ticker": ticker.ticker, "error": str(exc)})
+            return {"prices": results}
+
+        if not ticker_raw:
+            return {"error": "'ticker' or 'tickers' is required"}
+
+        ticker = Ticker(ticker_raw)
+        price = _log_and_fetch_price(ticker, "Price")
+        if price is None:
+            return {"error": f"Price not available for {ticker.ticker}"}
+        return {"ticker": ticker.ticker, "price": float(price)}
+
+    def mcp_execute(self, ticker: str = "", tickers: Optional[List[str]] = None) -> Dict[str, Any]:
+        """현재가 조회.
+
+        ticker: 단일 티커 조회 (예: "KRW-BTC" 또는 "BTC").
+        tickers: 복수 티커 조회 (예: ["KRW-BTC", "KRW-ETH"]).
+        """
+        return self.execute(uuid="", data={"ticker": ticker, "tickers": tickers})
+
 
 class OrdersCommandTool(CommandActionTool):
     action = "orders"
@@ -339,6 +442,10 @@ class OrdersCommandTool(CommandActionTool):
             context.dashboard.log(response_text)
 
         return {"count": count, "text": response_text}
+
+    def mcp_execute(self) -> Dict[str, Any]:
+        """미체결 주문 목록을 조회합니다."""
+        return self.execute(uuid=str(_uuid_mod.uuid4()), data={})
 
 
 class StrategyCommandTool(CommandActionTool):
@@ -467,3 +574,30 @@ class StrategyCommandTool(CommandActionTool):
         else:
             context.dashboard.log(f"Unknown strategy sub-action: {sub_action}")
             return {}
+
+    def mcp_execute(
+        self,
+        sub_action: str,
+        ticker: str = "",
+        name: str = "scalping_strategy",
+        budget: str = "0",
+        strategy_id: str = "",
+    ) -> Dict[str, Any]:
+        """전략 관리 (MQTT 호환 인터페이스).
+
+        sub_action="create": ticker + name + budget 지정하여 매수 전략 생성.
+        sub_action="list": 활성 전략 목록 조회.
+        sub_action="delete": strategy_id 지정하여 전략 삭제.
+        ※ 더 나은 MCP 인터페이스는 manage_strategy 도구를 사용하세요.
+        """
+        return self.execute(
+            uuid=str(_uuid_mod.uuid4()),
+            data={
+                "sub_action": sub_action,
+                "type": "buy",
+                "ticker": ticker,
+                "name": name,
+                "budget": budget,
+                "strategy_id": strategy_id,
+            },
+        )

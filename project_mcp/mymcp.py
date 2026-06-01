@@ -51,7 +51,12 @@ for name, ToolClass in discover_components(project_mcp.tools, Tool):
     print(f"Registered tool: {tool.identifier()}")
     if isinstance(tool, CommandActionTool):
         CommandToolRegistry.register(tool.identifier(), tool)
-    mcp.tool(name=tool.identifier())(tool.execute)
+        # Use mcp_execute if available — it has proper typed MCP params.
+        # The raw execute(uuid, data) is kept for MQTT/CommandRouter routing only.
+        fn = getattr(tool, "mcp_execute", None) or tool.execute
+    else:
+        fn = tool.execute
+    mcp.tool(name=tool.identifier())(fn)
 
 # Register Resources
 print("--- Registering Resources ---")
