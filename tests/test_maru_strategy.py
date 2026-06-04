@@ -42,29 +42,35 @@ class TestMaruStrategy(unittest.TestCase):
 
     def test_process_strategy_buy_command(self):
         """Verify processing of strategy buy command."""
-        # Cleaned up command payload matching maru CLI output
-        cmd_payload = {
-            "action": "strategy",
-            "sub_action": "create",
-            "type": "buy",
-            "ticker": "KRW-BTC",
-            "budget": "10000",
-            "name": "scalping_strategy",
-            "reply_to": "reply/topic"
-        }
-        
-        # Execute
-        self.manager.process_command("trading/command/1234", cmd_payload)
-        
-        # Verify Strategy Creation
-        self.mock_strategy_manager.create_strategy.assert_called_once()
-        call_args = self.mock_strategy_manager.create_strategy.call_args[1]
-        
-        self.assertEqual(call_args['name'], "scalping_strategy")
-        self.assertEqual(call_args['type'], StrategyType.BUY)
-        self.assertEqual(call_args['ticker'], "KRW-BTC")
-        self.assertEqual(call_args['budget'], Decimal("10000"))
-        self.assertEqual(call_args['config']['buy_amount'], Decimal("10000"))
+        # Mock current price for volume calculation
+        # Budget 10000 / (Price 1000 * (1 + 0.0005)) = 10000 / 1000.5 = 9.9950025
+        self.patcher_price.stop() # stop the return_value=None patch
+        with patch('src.main.pyupbit.get_current_price', return_value=1000.0):
+            cmd_payload = {
+                "action": "strategy",
+                "sub_action": "create",
+                "type": "buy",
+                "ticker": "KRW-BTC",
+                "budget": "10000",
+                "name": "scalping_strategy",
+                "reply_to": "reply/topic"
+            }
+            
+            # Execute
+            self.manager.process_command("trading/command/1234", cmd_payload)
+            
+            # Verify Strategy Creation
+            self.mock_strategy_manager.create_strategy.assert_called_once()
+            call_args = self.mock_strategy_manager.create_strategy.call_args[1]
+            
+            self.assertEqual(call_args['name'], "scalping_strategy")
+            self.assertEqual(call_args['type'], StrategyType.BUY)
+            self.assertEqual(call_args['ticker'], "KRW-BTC")
+            self.assertEqual(call_args['budget'], Decimal("10000"))
+            
+            # Expected Volume: 10000 / (1000 * 1.0005) = 9.99500249875...
+            expected_volume = Decimal("10000") / (Decimal("1000") * Decimal("1.0005"))
+            self.assertEqual(call_args['config']['buy_amount'], expected_volume)
         
         # Verify WebSocket Subscription
         self.mock_ws.add_subscription.assert_called_with(["KRW-BTC"])

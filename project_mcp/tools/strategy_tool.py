@@ -45,8 +45,10 @@ class StrategyTool(Tool):
                 return self._delete_strategy(ctx, params)
             elif action == 'list':
                 return self._list_strategies(ctx)
+            elif action == 'list_types':
+                return self._list_strategy_types()
             else:
-                return {"error": f"Unknown action: {action}. Valid actions: create, delete, list"}
+                return {"error": f"Unknown action: {action}. Valid actions: create, delete, list, list_types"}
         except Exception as e:
             logger.error(f"StrategyTool Error: {e}")
             import traceback
@@ -78,8 +80,9 @@ class StrategyTool(Tool):
         except ValueError:
             return {"error": f"Invalid type '{strategy_type_str}'. Valid values: 'buy', 'sell'"}
 
-        # Merge mandatory config fields
-        merged_config = {"name": name, "type": strategy_type.value, **config_dict}
+        # Merge mandatory config fields — buy_amount defaults to budget so strategies
+        # that require it (ScalpingStrategyConfig etc.) validate without extra params.
+        merged_config = {"name": name, "type": strategy_type.value, "buy_amount": budget, **config_dict}
 
         strategy_id = ctx.strategy_manager.create_strategy(
             name=name,
@@ -106,6 +109,48 @@ class StrategyTool(Tool):
         ctx.strategy_manager.archive_strategy(strategy_id)
         
         return {"result": "success", "message": f"Strategy {strategy_id} deleted"}
+
+    def _list_strategy_types(self) -> Dict[str, Any]:
+        return {
+            "strategy_types": [
+                {
+                    "name": "scalping_strategy",
+                    "description": "단기 매수 전략. 가격 상승 시그널에 따라 매수.",
+                    "type": "buy",
+                    "required_params": ["ticker", "budget"],
+                },
+                {
+                    "name": "volume_spike_strategy",
+                    "description": "거래량 급등 감지 전략. 60초 주기 스케줄 실행.",
+                    "type": "buy",
+                    "required_params": ["ticker", "budget"],
+                },
+                {
+                    "name": "anomaly_detection",
+                    "description": "통계적 이상 감지 전략.",
+                    "type": "buy",
+                    "required_params": ["ticker", "budget"],
+                },
+                {
+                    "name": "dl_anomaly_detection",
+                    "description": "딥러닝 기반 이상 감지 전략.",
+                    "type": "buy",
+                    "required_params": ["ticker", "budget"],
+                },
+                {
+                    "name": "trailing_stop",
+                    "description": "트레일링 스탑 전략. 포켓 연결 시 사용.",
+                    "type": "sell",
+                    "required_params": ["ticker", "budget"],
+                },
+                {
+                    "name": "default",
+                    "description": "기본 전략. 매수 완료 후 포켓에 자동 할당됨.",
+                    "type": "sell",
+                    "required_params": ["ticker", "budget"],
+                },
+            ]
+        }
 
     def _list_strategies(self, ctx) -> Dict[str, Any]:
         strategies = []
