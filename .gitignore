@@ -4,3 +4,4 @@
 coin-stratege.log
 **/*.log
 logs.env
+logs/
