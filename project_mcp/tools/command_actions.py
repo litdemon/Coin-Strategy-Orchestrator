@@ -343,16 +343,18 @@ class PocketsCommandTool(CommandActionTool):
         reply_to = data.get("reply_to")
         context.dashboard.log("CMD POCKETS Request")
 
-        lines = [f"{'UUID':<8} | {'Ticker':<10} | {'ROI':<8} | {'Vol':<12}", "-" * 50]
+        lines = [f"{'UUID':<8} | {'Ticker':<10} | {'Status':<8} | {'ROI':<8} | {'Vol':<12}", "-" * 55]
         count = 0
         for pos in context.pocket_manager.pockets.values():
+            if pos.is_closed:
+                continue
             ticker = Ticker(pos.ticker)
             current_price = context.current_prices.get(ticker.ticker)
             if not current_price or pos.entry_price <= 0:
                 continue
             profit_rate = (current_price / pos.entry_price) - 1
             lines.append(
-                f"{pos.id[:6]:<8} | {ticker.ticker:<10} | {profit_rate * 100:.2f}% | {pos.volume}"
+                f"{pos.id[:6]:<8} | {ticker.ticker:<10} | {pos.status:<8} | {profit_rate * 100:.2f}% | {pos.volume}"
             )
             count += 1
 
